@@ -79,51 +79,41 @@ fi
 mkdir -p "$HOME/.hammerspoon"
 HS_BLOCK_TEMPLATE="$(cat <<'LUA'
 -- ===== prompt-rewriter:hotkey BEGIN =====
--- Prompt Rewriter: fn + Control + R
--- Uses hs.eventtap because hs.hotkey.bind cannot detect the fn modifier
--- (fn is a "secondary" flag that bypasses the standard Carbon hotkey API).
+-- Owlet Rewriter: fn + Control + R
+-- Uses hs.eventtap because hs.hotkey.bind cannot detect the fn modifier.
+-- Hammerspoon's only job here is to forward the chord as an owlet:// URL;
+-- Owlet.app handles capture, popup, AX replacement.
 hs.allowAppleScript(true)  -- lets `./install.sh` call hs.reload() via osascript
 do
-    local home = os.getenv("HOME")
-    local python = home .. "/__SCRIPT_ROOT__/tools/rewriter/.venv/bin/python3"
-    local script = home .. "/__SCRIPT_ROOT__/tools/rewriter/rewrite_prompt.py"
-
-    local function runRewrite()
-        hs.task.new(python, function(exitCode, stdOut, stdErr)
-            if exitCode ~= 0 then
-                hs.alert.show("Rewrite failed: " .. (stdErr or "unknown"))
-            end
-        end, { script }):start()
+    local function trigger()
+        hs.execute("open owlet://rewrite")
     end
 
-    -- Stash globally so reloads can re-attach cleanly without leaking taps.
-    if _G.__promptRewriterTap then
-        _G.__promptRewriterTap:stop()
-        _G.__promptRewriterTap = nil
+    if _G.__owletTap then
+        _G.__owletTap:stop()
+        _G.__owletTap = nil
     end
 
-    _G.__promptRewriterTap = hs.eventtap.new(
+    _G.__owletTap = hs.eventtap.new(
         { hs.eventtap.event.types.keyDown },
         function(event)
             local flags = event:getFlags()
             local keyName = hs.keycodes.map[event:getKeyCode()]
-            -- Require fn + ctrl, and explicitly forbid the other modifiers
-            -- so we don't fire on unrelated chords like cmd+fn+ctrl+R.
             if keyName == "r"
                 and flags.fn and flags.ctrl
                 and not flags.cmd and not flags.alt and not flags.shift then
-                runRewrite()
-                return true  -- swallow the event so it doesn't reach the app
+                trigger()
+                return true
             end
             return false
         end
     )
-    _G.__promptRewriterTap:start()
+    _G.__owletTap:start()
 end
 -- ===== prompt-rewriter:hotkey END =====
 LUA
 )"
-HS_BLOCK="${HS_BLOCK_TEMPLATE//__SCRIPT_ROOT__/$SCRIPT_ROOT_REL}"
+HS_BLOCK="$HS_BLOCK_TEMPLATE"
 
 if [ -f "$HS_INIT" ] && grep -Fq "$HS_MARKER" "$HS_INIT"; then
   echo "==> Refreshing prompt-rewriter block in ~/.hammerspoon/init.lua (path=$SCRIPT_ROOT_REL)"
