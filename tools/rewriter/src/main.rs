@@ -7,6 +7,20 @@ enum RewriteError {
     Empty,
 }
 
+impl RewriteError {
+    fn stderr_message(&self) -> String {
+        match self {
+            RewriteError::Timeout => "ERROR: Ollama request timed out".into(),
+            RewriteError::ConnectionRefused => {
+                "ERROR: Connection to Ollama refused; is 'ollama serve' running?".into()
+            }
+            RewriteError::Http(detail) => format!("ERROR: Ollama HTTP error: {detail}"),
+            RewriteError::Parse(reason) => format!("ERROR: malformed Ollama response: {reason}"),
+            RewriteError::Empty => "ERROR: empty rewrite output".into(),
+        }
+    }
+}
+
 fn strip_think_blocks(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut rest = input;
@@ -162,5 +176,46 @@ mod tests {
         // parse_response is just JSON extraction. <think> stripping happens later.
         let body = r#"{"message":{"content":"<think>x</think>final"}}"#;
         assert_eq!(parse_response(body).unwrap(), "<think>x</think>final");
+    }
+
+    #[test]
+    fn stderr_timeout_phrasing() {
+        assert_eq!(
+            RewriteError::Timeout.stderr_message(),
+            "ERROR: Ollama request timed out"
+        );
+    }
+
+    #[test]
+    fn stderr_connection_refused_phrasing() {
+        let msg = RewriteError::ConnectionRefused.stderr_message();
+        assert_eq!(
+            msg,
+            "ERROR: Connection to Ollama refused; is 'ollama serve' running?"
+        );
+        // Swift heuristic in RewriterFlow.swift:75 keys on "Connection" (case-insensitive).
+        assert!(msg.to_lowercase().contains("connection"));
+    }
+
+    #[test]
+    fn stderr_empty_phrasing() {
+        assert_eq!(
+            RewriteError::Empty.stderr_message(),
+            "ERROR: empty rewrite output"
+        );
+    }
+
+    #[test]
+    fn stderr_http_includes_inner_message() {
+        let m = RewriteError::Http("500 boom".into()).stderr_message();
+        assert!(m.starts_with("ERROR:"));
+        assert!(m.contains("500 boom"));
+    }
+
+    #[test]
+    fn stderr_parse_includes_inner_reason() {
+        let m = RewriteError::Parse("missing message.content".into()).stderr_message();
+        assert!(m.starts_with("ERROR:"));
+        assert!(m.contains("missing message.content"));
     }
 }
