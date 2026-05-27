@@ -22,11 +22,3 @@ enum ErrorKind: Equatable {
     case axDenied
     case backendUnavailable(message: String)
 }
-
-// TEMPORARY: stubbed so PopupState compiles before DiffEngine lands.
-// Task 10 will move this to DiffEngine.swift and delete this stub.
-struct DiffSegment: Equatable {
-    enum Kind: Equatable { case unchanged, added, removed }
-    let text: String
-    let kind: Kind
-}
