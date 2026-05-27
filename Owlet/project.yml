@@ -1,0 +1,64 @@
+name: Owlet
+options:
+  bundleIdPrefix: co.greenpassport
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  Owlet:
+    type: application
+    platform: macOS
+    sources:
+      - path: Owlet
+        excludes:
+          - "Info.plist"
+          - "Owlet.entitlements"
+    resources: []
+    info:
+      path: Owlet/Info.plist
+      properties:
+        CFBundleName: Owlet
+        CFBundleDisplayName: Owlet
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSUIElement: YES
+        NSAccessibilityUsageDescription: "Owlet needs Accessibility to read the text you select and to replace it with the rewritten version when you click Replace."
+        CFBundleURLTypes:
+          - CFBundleURLName: co.greenpassport.owlet
+            CFBundleURLSchemes:
+              - owlet
+    entitlements:
+      path: Owlet/Owlet.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.greenpassport.owlet
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        INFOPLIST_FILE: Owlet/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Owlet/Owlet.entitlements
+
+  OwletTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: OwletTests
+    dependencies:
+      - target: Owlet
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.greenpassport.owlet.tests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Owlet.app/Contents/MacOS/Owlet"
+        GENERATE_INFOPLIST_FILE: YES
