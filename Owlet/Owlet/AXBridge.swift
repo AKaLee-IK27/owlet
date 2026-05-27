@@ -5,7 +5,7 @@ struct SelectionSnapshot: Equatable {
     enum CaptureMethod { case ax, clipboardFallback }
     let text: String
     let sourceAppBundleID: String
-    let focusedElement: AXUIElement
+    let focusedElement: AXUIElement?  // nil for non-AX-cooperative apps (Electron, Chrome, etc.)
     let captureMethod: CaptureMethod
 
     static func == (lhs: SelectionSnapshot, rhs: SelectionSnapshot) -> Bool {
@@ -39,11 +39,17 @@ enum AXBridge {
 
     // MARK: Capture
     static func capture() -> CaptureOutcome {
-        guard let focus = currentFocus() else { return .noFocus }
-        if isPasswordField(focus.focusedElement) { return .passwordField }
+        let focus = currentFocus()  // may be nil for Electron/Chrome/Terminal; don't bail yet
 
-        // 1) Direct AX read.
-        if let text = readSelectedText(from: focus.focusedElement), !text.isEmpty {
+        // Password field guard (only if we have focus)
+        if let focus = focus, isPasswordField(focus.focusedElement) {
+            return .passwordField
+        }
+
+        // Fast path: AX read (cooperative apps: TextEdit, Pages, Notes, etc.)
+        if let focus = focus,
+           let text = readSelectedText(from: focus.focusedElement),
+           !text.isEmpty {
             return .captured(SelectionSnapshot(
                 text: text,
                 sourceAppBundleID: focus.appBundleID,
@@ -52,16 +58,18 @@ enum AXBridge {
             ))
         }
 
-        // 2) Clipboard-roundtrip fallback: save → Cmd+C → read → restore later.
-        if let text = clipboardRoundtripCopy(), !text.isEmpty {
+        // Fallback: clipboard, where Hammerspoon already put the captured selection
+        // via Cmd+C in the still-focused source app (before firing owlet:// URL).
+        if let text = NSPasteboard.general.string(forType: .string), !text.isEmpty {
             return .captured(SelectionSnapshot(
                 text: text,
-                sourceAppBundleID: focus.appBundleID,
-                focusedElement: focus.focusedElement,
+                sourceAppBundleID: focus?.appBundleID ?? "",
+                focusedElement: focus?.focusedElement,   // may be nil — Replace handles it
                 captureMethod: .clipboardFallback
             ))
         }
-        return .empty
+
+        return focus == nil ? .noFocus : .empty
     }
 
     // MARK: Replace
@@ -125,27 +133,7 @@ enum AXBridge {
         return false
     }
 
-    private static func clipboardRoundtripCopy() -> String? {
-        let pb = NSPasteboard.general
-        let saved = pb.string(forType: .string)
-        pb.clearContents()
-        let beforeCount = pb.changeCount
-        if !postCmdC() { return nil }
-        // Wait briefly for the source app to write the pasteboard.
-        let deadline = Date().addingTimeInterval(0.5)
-        while pb.changeCount == beforeCount && Date() < deadline {
-            usleep(20_000)
-        }
-        let captured = pb.string(forType: .string)
-        // Restore prior clipboard contents after a delay.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let s = saved { pb.clearContents(); pb.setString(s, forType: .string) }
-        }
-        return captured
-    }
-
     private static func postCmdV() -> Bool { postKey(keyCode: 9 /* V */) }
-    private static func postCmdC() -> Bool { postKey(keyCode: 8 /* C */) }
 
     private static func postKey(keyCode: CGKeyCode) -> Bool {
         guard let src = CGEventSource(stateID: .hidSystemState),

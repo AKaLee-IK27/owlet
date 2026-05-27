@@ -130,7 +130,11 @@ final class RewriterFlow: CaptureFlow {
                 else { setState(.error(.backendUnavailable(message: msg))) }
             }
         } else {
-            setState(.error(.focusLost))
+            // No focused element (Electron / Chrome / Terminal path) — clipboard
+            // is the best we can do. Write the rewrite and dismiss; user pastes with Cmd+V.
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(rewritten, forType: .string)
+            popup.hide()
         }
     }
 
