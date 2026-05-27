@@ -13,8 +13,7 @@ struct OwletApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Placeholder — Task 8 wires the full launch tree.
-        if !AXBridge.isTrusted(promptIfNeeded: true) {
-            NSApp.terminate(nil)
-        }
+        // Do not terminate here: test runner uses Owlet.app as TEST_HOST and
+        // expects it to stay alive long enough for XCTest to attach.
     }
 }
