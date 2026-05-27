@@ -91,10 +91,16 @@ echo "==> Regenerating Owlet.xcodeproj"
 (cd "$OWLET_XCODE_DIR" && xcodegen generate >/dev/null)
 
 echo "==> Building Owlet.app (Release)"
-(cd "$OWLET_XCODE_DIR" \
-  && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-     xcodebuild -project Owlet.xcodeproj -scheme Owlet -configuration Release \
-       -derivedDataPath build clean build >/dev/null)
+BUILD_LOG="$(mktemp -t owlet-build.XXXXXX)"
+if ! (cd "$OWLET_XCODE_DIR" \
+       && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+          xcodebuild -project Owlet.xcodeproj -scheme Owlet -configuration Release \
+            -derivedDataPath build clean build > "$BUILD_LOG" 2>&1); then
+  echo "ERROR: xcodebuild failed. Last 60 lines of $BUILD_LOG:" >&2
+  tail -60 "$BUILD_LOG" >&2
+  exit 1
+fi
+rm -f "$BUILD_LOG"
 
 BUILT_APP="$OWLET_XCODE_DIR/build/Build/Products/Release/$OWLET_APP_NAME"
 if [ ! -d "$BUILT_APP" ]; then
