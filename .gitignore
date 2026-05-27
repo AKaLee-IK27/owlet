@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Xcode (when SwiftUI app lands)
+PromptRewriter/build/
+PromptRewriter/.build/
+PromptRewriter/DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store
