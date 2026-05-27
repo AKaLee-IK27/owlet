@@ -21,6 +21,13 @@ struct FocusSnapshot {
     let focusedElement: AXUIElement
 }
 
+enum CaptureOutcome {
+    case captured(SelectionSnapshot)
+    case noFocus
+    case passwordField
+    case empty
+}
+
 enum AXBridge {
 
     // MARK: Trust check
@@ -31,30 +38,30 @@ enum AXBridge {
     }
 
     // MARK: Capture
-    static func captureSelection() -> SelectionSnapshot? {
-        guard let focus = currentFocus() else { return nil }
-        if isPasswordField(focus.focusedElement) { return nil }
+    static func capture() -> CaptureOutcome {
+        guard let focus = currentFocus() else { return .noFocus }
+        if isPasswordField(focus.focusedElement) { return .passwordField }
 
         // 1) Direct AX read.
         if let text = readSelectedText(from: focus.focusedElement), !text.isEmpty {
-            return SelectionSnapshot(
+            return .captured(SelectionSnapshot(
                 text: text,
                 sourceAppBundleID: focus.appBundleID,
                 focusedElement: focus.focusedElement,
                 captureMethod: .ax
-            )
+            ))
         }
 
         // 2) Clipboard-roundtrip fallback: save → Cmd+C → read → restore later.
         if let text = clipboardRoundtripCopy(), !text.isEmpty {
-            return SelectionSnapshot(
+            return .captured(SelectionSnapshot(
                 text: text,
                 sourceAppBundleID: focus.appBundleID,
                 focusedElement: focus.focusedElement,
                 captureMethod: .clipboardFallback
-            )
+            ))
         }
-        return nil
+        return .empty
     }
 
     // MARK: Replace
@@ -160,12 +167,12 @@ enum AXBridge {
 /// Protocol exposed for testing. Production uses AXBridge's static functions
 /// behind a small adapter.
 protocol AXBridging {
-    func captureSelection() -> SelectionSnapshot?
+    func capture() -> CaptureOutcome
     func replaceSelection(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult
 }
 
 struct AXBridgeAdapter: AXBridging {
-    func captureSelection() -> SelectionSnapshot? { AXBridge.captureSelection() }
+    func capture() -> CaptureOutcome { AXBridge.capture() }
     func replaceSelection(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
         AXBridge.replaceSelection(text, in: element)
     }

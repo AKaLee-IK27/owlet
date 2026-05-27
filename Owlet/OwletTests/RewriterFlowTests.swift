@@ -5,10 +5,10 @@ import ApplicationServices
 final class RewriterFlowTests: XCTestCase {
 
     final class MockAX: AXBridging {
-        var snapshot: SelectionSnapshot?
+        var outcome: CaptureOutcome = .noFocus
         var replaceResult: AXBridge.ReplaceResult = .okAX
         var replaceCallCount = 0
-        func captureSelection() -> SelectionSnapshot? { snapshot }
+        func capture() -> CaptureOutcome { outcome }
         func replaceSelection(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
             replaceCallCount += 1
             return replaceResult
@@ -27,7 +27,16 @@ final class RewriterFlowTests: XCTestCase {
     @MainActor
     func test_emptySelection_setsErrorStateSelectionEmpty() async {
         let ax = MockAX()
-        ax.snapshot = nil
+        ax.outcome = .empty
+        let flow = RewriterFlow(ax: ax, rewriter: MockRewriter(), popup: PopupWindowController())
+        await flow.start()
+        XCTAssertEqual(flow.lastObservedState, .error(.selectionEmpty))
+    }
+
+    @MainActor
+    func test_noFocus_setsErrorStateSelectionEmpty() async {
+        let ax = MockAX()
+        ax.outcome = .noFocus
         let flow = RewriterFlow(ax: ax, rewriter: MockRewriter(), popup: PopupWindowController())
         await flow.start()
         XCTAssertEqual(flow.lastObservedState, .error(.selectionEmpty))
@@ -37,11 +46,11 @@ final class RewriterFlowTests: XCTestCase {
     func test_inputTooLong_hardRejects() async {
         let ax = MockAX()
         let bogusElement = unsafeBitCast(0, to: AXUIElement.self)   // not used in this path
-        ax.snapshot = SelectionSnapshot(
+        ax.outcome = .captured(SelectionSnapshot(
             text: String(repeating: "a", count: 17_000),
             sourceAppBundleID: "test", focusedElement: bogusElement,
             captureMethod: .ax
-        )
+        ))
         let rewriter = MockRewriter()
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
         await flow.start()
@@ -55,8 +64,8 @@ final class RewriterFlowTests: XCTestCase {
     func test_emptyRewriteOutput_emptyState() async {
         let ax = MockAX()
         let bogusElement = unsafeBitCast(0, to: AXUIElement.self)
-        ax.snapshot = SelectionSnapshot(text: "hello", sourceAppBundleID: "t",
-                                         focusedElement: bogusElement, captureMethod: .ax)
+        ax.outcome = .captured(SelectionSnapshot(text: "hello", sourceAppBundleID: "t",
+                                        focusedElement: bogusElement, captureMethod: .ax))
         let rewriter = MockRewriter()
         rewriter.response = .success("hello")        // identical → empty state
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
@@ -69,8 +78,8 @@ final class RewriterFlowTests: XCTestCase {
     func test_happyPath_setsResultStateWithDiff() async {
         let ax = MockAX()
         let bogusElement = unsafeBitCast(0, to: AXUIElement.self)
-        ax.snapshot = SelectionSnapshot(text: "the cat sat", sourceAppBundleID: "t",
-                                         focusedElement: bogusElement, captureMethod: .ax)
+        ax.outcome = .captured(SelectionSnapshot(text: "the cat sat", sourceAppBundleID: "t",
+                                        focusedElement: bogusElement, captureMethod: .ax))
         let rewriter = MockRewriter()
         rewriter.response = .success("the dog sat")
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
@@ -86,8 +95,8 @@ final class RewriterFlowTests: XCTestCase {
     func test_ollamaUnreachable_errorOllamaDown() async {
         let ax = MockAX()
         let bogusElement = unsafeBitCast(0, to: AXUIElement.self)
-        ax.snapshot = SelectionSnapshot(text: "x", sourceAppBundleID: "t",
-                                         focusedElement: bogusElement, captureMethod: .ax)
+        ax.outcome = .captured(SelectionSnapshot(text: "x", sourceAppBundleID: "t",
+                                        focusedElement: bogusElement, captureMethod: .ax))
         let rewriter = MockRewriter()
         rewriter.response = .failure(OllamaClient.Failure.backendError("ConnectionError"))
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
@@ -95,5 +104,14 @@ final class RewriterFlowTests: XCTestCase {
         if case .error(let k) = flow.lastObservedState {
             XCTAssertTrue(k == .ollamaDown || k == .backendUnavailable(message: "ConnectionError"))
         } else { XCTFail("expected .error, got \(String(describing: flow.lastObservedState))") }
+    }
+
+    @MainActor
+    func test_passwordField_setsErrorPasswordField() async {
+        let ax = MockAX()
+        ax.outcome = .passwordField
+        let flow = RewriterFlow(ax: ax, rewriter: MockRewriter(), popup: PopupWindowController())
+        await flow.start()
+        XCTAssertEqual(flow.lastObservedState, .error(.passwordField))
     }
 }

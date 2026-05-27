@@ -36,9 +36,13 @@ final class RewriterFlow: CaptureFlow {
 
     func start() async {
         // 1) Capture
-        guard let snap = ax.captureSelection() else {
-            setState(.error(.selectionEmpty))
-            return
+        let snap: SelectionSnapshot
+        switch ax.capture() {
+        case .captured(let s): snap = s
+        case .passwordField:
+            setState(.error(.passwordField)); return
+        case .noFocus, .empty:
+            setState(.error(.selectionEmpty)); return
         }
         _currentFocusedElement = snap.focusedElement
         if snap.text.count > Self.inputHardLimit {
