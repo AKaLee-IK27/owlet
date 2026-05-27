@@ -176,48 +176,72 @@ struct AXBridgeAdapter: AXBridging {
 extension AXBridge {
 
     /// Capture the source app's current selection by synthesizing Cmd+C.
-    /// Mirrors the Hammerspoon Lua capture: wait for the user to release
-    /// fn+ctrl (otherwise the chord taints our Cmd+C with extra modifiers
-    /// and the source app's Copy handler doesn't fire), post Cmd+C with
-    /// explicit cmd-only flags, then poll the pasteboard for a changeCount
-    /// increment up to 1 s. Returns nil if no new text appeared.
-    /// Caller is responsible for restoring the original clipboard.
+    /// Reads live hardware modifier state (not NSEvent's queue) so the
+    /// wait-for-fn+ctrl-release actually waits. Then posts Cmd+C with
+    /// explicit cmd-only flags from a privateState source so the synthetic
+    /// event isn't merged with held hardware modifiers.
+    /// Returns nil if no new text appeared on the clipboard.
     static func swiftCmdCCapture() -> (text: String, savedClipboard: String?)? {
+        let log = OSLog(subsystem: "co.greenpassport.owlet", category: "capture")
         let pb = NSPasteboard.general
         let saved = pb.string(forType: .string)
         let beforeCount = pb.changeCount
+        os_log("capture: enter, beforeCount=%d, savedLen=%d", log: log, type: .info,
+               beforeCount, saved?.count ?? -1)
 
-        // Wait for fn+ctrl release (up to 300 ms). Check current global
-        // modifier state via NSEvent's class API.
-        let releaseDeadline = Date().addingTimeInterval(0.3)
+        // Live hardware modifier state — independent of NSEvent's queue.
+        let fnMask: CGEventFlags = .maskSecondaryFn
+        let ctrlMask: CGEventFlags = .maskControl
+        let releaseDeadline = Date().addingTimeInterval(0.5)
+        var loops = 0
         while Date() < releaseDeadline {
-            let m = NSEvent.modifierFlags
-            let fnHeld = m.contains(.function)
-            let ctrlHeld = m.contains(.control)
+            let flags = CGEventSource.flagsState(.combinedSessionState)
+            let fnHeld = flags.contains(fnMask)
+            let ctrlHeld = flags.contains(ctrlMask)
             if !fnHeld && !ctrlHeld { break }
+            loops += 1
             usleep(10_000)
         }
+        os_log("capture: post-release-wait, loops=%d", log: log, type: .info, loops)
 
-        // Post Cmd+C with EXPLICIT cmd-only flags (no leftover hardware state).
-        guard let src = CGEventSource(stateID: .hidSystemState),
+        // Use .privateState source — synthetic events from this source don't
+        // pick up the user's hardware modifier flags. (.hidSystemState merges
+        // hardware state, which is exactly what we DON'T want here.)
+        guard let src = CGEventSource(stateID: .privateState),
               let down = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: true),
               let up   = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: false)
-        else { return nil }
+        else {
+            os_log("capture: CGEvent construction failed", log: log, type: .error)
+            return nil
+        }
         down.flags = .maskCommand
         up.flags = .maskCommand
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
+        os_log("capture: posted Cmd+C", log: log, type: .info)
 
         // Poll for clipboard change (up to 1 s).
         let deadline = Date().addingTimeInterval(1.0)
         while pb.changeCount == beforeCount && Date() < deadline {
             usleep(20_000)
         }
-
+        let afterCount = pb.changeCount
         let captured = pb.string(forType: .string)
-        if pb.changeCount == beforeCount { return nil }              // no Cmd+C response
-        guard let text = captured, !text.isEmpty else { return nil } // changed but empty
-        if text == saved { return nil }                              // changed but identical
+        os_log("capture: afterCount=%d, capturedLen=%d", log: log, type: .info,
+               afterCount, captured?.count ?? -1)
+
+        if afterCount == beforeCount {
+            os_log("capture: NO clipboard change — source app didn't respond to Cmd+C", log: log, type: .error)
+            return nil
+        }
+        guard let text = captured, !text.isEmpty else {
+            os_log("capture: clipboard changed but text is empty/nil", log: log, type: .error)
+            return nil
+        }
+        if text == saved {
+            os_log("capture: clipboard changed but text matches saved (no new selection?)", log: log, type: .error)
+            return nil
+        }
 
         return (text: text, savedClipboard: saved)
     }
