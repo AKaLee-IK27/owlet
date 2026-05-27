@@ -150,6 +150,11 @@ fn call_ollama(prompt: &str) -> Result<String, RewriteError> {
         Err(ureq::Error::Transport(transport)) => {
             let kind = transport.kind();
             let msg = transport.message().unwrap_or("").to_lowercase();
+            // Check phrasing before kind: ureq 2.12 reports timeouts as
+            // ErrorKind::Io with "timed out" in the message, not as a
+            // distinct variant. Phrase-first means a connect-phase timeout
+            // (kind=ConnectionFailed + msg="timed out") still routes to
+            // Timeout, which is what the user wants to see.
             if msg.contains("timed out") || msg.contains("timeout") {
                 Err(RewriteError::Timeout)
             } else if matches!(kind, ureq::ErrorKind::ConnectionFailed)
