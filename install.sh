@@ -228,7 +228,7 @@ cp -R "$BUILT_APP" "$OWLET_INSTALL_DIR/"
 # be verified" on first launch. Ad-hoc self-sign means we can't notarize.
 xattr -dr com.apple.quarantine "$OWLET_INSTALL_DIR/$OWLET_APP_NAME" 2>/dev/null || true
 
-# Tell Owlet where to find the rewriter venv + script.
+# Tell Owlet where to find the rewriter binary.
 defaults write co.greenpassport.owlet rewriterDirectory "$HERE/tools/rewriter"
 
 # Re-register Launch Services so any stale URL-scheme handler bindings clear.
