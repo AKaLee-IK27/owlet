@@ -22,13 +22,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastKnownPermissionStatus: PermissionStatus = .allGranted
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSLog("Owlet[trace]: applicationDidFinishLaunching START")
+
+        // ALWAYS create the status bar item first. Provides a visible signal
+        // that Owlet is running and an escape hatch (Quit) regardless of
+        // what permission state we end up in.
+        self.statusBar = StatusBarController()
+        NSLog("Owlet[trace]: StatusBarController created")
+
         let status = PermissionChecker.check()
         lastKnownPermissionStatus = status
+        NSLog("Owlet[trace]: permission status = %@", String(describing: status))
 
         switch status {
         case .allGranted:
+            NSLog("Owlet[trace]: all permissions granted, normal launch")
             startNormalLaunch()
         case .missing(let missing):
+            NSLog("Owlet[trace]: missing permissions: %@", String(describing: missing))
             showPermissionModal(missing: missing)
         }
     }
@@ -54,8 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Register login item (no-op if already registered).
         LoginItemManager.registerIfNeeded()
 
-        // Menu bar status item so the user can see Owlet is running.
-        self.statusBar = StatusBarController()
+        // (statusBar was already created in applicationDidFinishLaunching.)
 
         // Poll for permission revocation every 60 s.
         startPermissionPolling()
