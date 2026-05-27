@@ -1,89 +1,99 @@
-# Prompt Rewriter
+# Owlet
 
-A macOS hotkey tool that rewrites the clipboard's English prompt into clearer, grammatical English using a local LLM (Ollama + `qwen3:8b`). No cloud, no API keys, no browser extension — works in any app.
+Small, friendly local-LLM tools for macOS. v1 ships **Owlet Rewriter** — a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen3:8b`). No cloud, no API keys, no browser extension.
 
-**Workflow:** copy draft → press **fn + Ctrl + R** → paste cleaned version.
+**Workflow:** select text → press `fn+Ctrl+R` → review the inline diff → click Replace (in-place) or Copy.
 
 ## Prerequisites
 
-- **macOS** (tested on Apple Silicon).
-- **Ollama** — install from <https://ollama.com/download>.
-- **Homebrew** — used to install Hammerspoon. <https://brew.sh>.
-- **Python 3** — system `python3` is fine (macOS ships with it).
+- macOS 14+ (tested on macOS 26.5 Apple Silicon)
+- [Ollama](https://ollama.com/download)
+- [Homebrew](https://brew.sh) — used to install Hammerspoon and xcodegen
+- Xcode (full IDE — Command Line Tools alone are not enough)
 
 ## Install
 
 ```bash
-cd ~/repos/prompt-rewriter
+cd ~/repos/owlet
 ./install.sh
 ```
 
-The folder can live anywhere under `$HOME` — the installer derives its own path and writes that path into `~/.hammerspoon/init.lua`. If you move the folder later, just re-run `./install.sh` from the new location.
+The installer:
 
-The installer is fully scripted and idempotent. It will:
+1. Pulls `qwen3:8b` (~5.2 GB) via Ollama.
+2. Creates a Python venv at `tools/rewriter/.venv/` and installs deps.
+3. Adds `OLLAMA_KEEP_ALIVE=24h` to `~/.zshrc` (only if not already set).
+4. Installs Hammerspoon via brew if missing.
+5. Refreshes the `fn+Ctrl+R` block in `~/.hammerspoon/init.lua` to fire `owlet://rewrite`.
+6. Installs xcodegen if missing.
+7. Generates `Owlet.xcodeproj`, builds Release, self-signs, and copies to `~/Applications/Owlet.app`.
+8. Launches Owlet and opens System Settings → Accessibility on a fresh install.
 
-1. Verify `ollama` is on `PATH` and pull the `qwen3:8b` model (~5.2 GB).
-2. Create a Python venv at `./.venv` and install `pyperclip` + `requests`.
-3. Add `export OLLAMA_KEEP_ALIVE=24h` to `~/.zshrc` (only if no `OLLAMA_KEEP_ALIVE` line already exists — keeps the model warm in RAM so cold starts disappear).
-4. Install **Hammerspoon** via `brew install --cask hammerspoon` if it's not already present.
-5. Write/append the `fn + Ctrl + R` hotkey block to `~/.hammerspoon/init.lua` (idempotent — the block is marked and only added once).
-6. Launch Hammerspoon (or reload its config if already running) and open **System Settings → Privacy & Security → Accessibility**.
+**Manual step (once):** toggle **Owlet** ON in the Accessibility pane that opens. macOS won't let scripts grant TCC permissions; this is the only step that isn't automated.
 
-**The only manual step** is toggling Hammerspoon ON in the Accessibility pane — macOS does not allow scripts to grant TCC permissions.
+> Note: `xcode-select` must point at the full Xcode IDE, not Command Line Tools. If you see SourceKit errors in your editor about `XCTest` or `Theme` "not found," run once: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The installer itself uses `DEVELOPER_DIR` so it works either way.
 
 ## Usage
 
-1. Select text in any app and press `Cmd+C`.
-2. Press **fn + Ctrl + R**.
-3. Wait for the "Prompt rewritten" notification (typically <2s once the model is warm).
-4. Press `Cmd+V` to paste the rewrite.
-
-If the clipboard is empty or whitespace-only, the script exits silently — no notification.
-
-## Why fn + Ctrl + R (and a caveat)
-
-`fn` is a "secondary" macOS modifier that Carbon's standard hotkey API (used by `hs.hotkey.bind`) does not see. The included `init.lua` uses `hs.eventtap` to watch raw key events instead. This works reliably on the **MacBook internal keyboard**, where pressing `fn` emits the `SecondaryFn` flag. **External keyboards** (especially non-Apple ones) may not emit this flag — if you use the tool on an external keyboard and the hotkey does nothing, swap to a more conventional chord (see "Change the hotkey" below).
+1. Select text in any app.
+2. Press `fn+Ctrl+R`.
+3. Review the inline diff (deleted words in red strikethrough, added words in green).
+4. **Enter** to Replace · **Cmd+C** to Copy · **Esc** to Cancel.
 
 ## Customisation
 
-- **Change the hotkey**: edit `~/.hammerspoon/init.lua` between the `prompt-rewriter:hotkey BEGIN/END` markers. If you don't need `fn`, you can drop back to the simpler `hs.hotkey.bind` form, e.g.:
-  ```lua
-  hs.hotkey.bind({"ctrl", "alt"}, "R", runRewrite)
-  ```
-  Reload via the Hammerspoon menu bar → Reload Config (or just re-run `./install.sh`, which calls `hs.reload()` for you).
-- **Change the model**: edit the `MODEL = "qwen3:8b"` constant near the top of `rewrite_prompt.py`. Any chat model Ollama has pulled will work; smaller models trade quality for speed.
-- **Tune temperature**: edit `"temperature": 0.2` inside `rewrite()` in `rewrite_prompt.py`.
+- **Change the hotkey:** edit the eventtap block in `~/.hammerspoon/init.lua` between the `prompt-rewriter:hotkey BEGIN/END` markers. Reload Hammerspoon (menu bar → Reload Config). `fn` requires the eventtap path; non-`fn` chords can use `hs.hotkey.bind`.
+- **Change the model:** edit `MODEL = "qwen3:8b"` in `tools/rewriter/rewrite_prompt.py`.
+- **Change the prompt:** edit `SYSTEM_PROMPT` in the same file.
 
-## Behaviour notes
+## Project layout
 
-- **Mixed-language input**: feeding the model `viết cho tôi a function python để parse json` is acceptable input. `qwen3:8b` will typically translate the Vietnamese fragments into English and produce a clean English prompt; behaviour is not strictly specified.
-- **Already-clean prompts** pass through with minimal change at `temperature=0.2`.
-- **`<think>` blocks**: the script disables Qwen 3 thinking mode (`think: false`) and additionally strips any `<think>…</think>` blocks as a safety net.
-- **Wrapping quotes**: the model occasionally wraps the output in `"…"` or `'…'` despite the system prompt. The script strips them only when the quote appears exactly twice (at start and end), so legitimate inner quotes are preserved.
+```
+~/repos/owlet/
+├── tools/rewriter/      # Python CLI (Ollama backend)
+├── Owlet/               # SwiftUI app (Xcode project, generated by xcodegen)
+├── docs/superpowers/    # specs + plans
+├── install.sh           # one-shot installer / refresh script
+└── README.md
+```
+
+## Roadmap
+
+- **v0.1 (this release):** Owlet Rewriter with popup, inline diff, Replace/Copy.
+- **Next:** Owlet Translator (`owlet://translate`) for VI ↔ EN.
+- **After that:** Owlet Grammar (`owlet://grammar`) for grammar-focused feedback.
+
+The single `Owlet.app` binary hosts all future commands — adding one means writing a new `*Flow.swift` and registering the verb, no new app bundle needed.
+
+## Manual smoke test checklist
+
+After install, walk through these to confirm everything works:
+
+- [ ] **TextEdit happy path.** Type a rough draft, select, `fn+Ctrl+R`. Popup → loading → result with inline diff → Enter → text replaced in place.
+- [ ] **Safari article body (read-only).** Highlight text in a Safari article, hotkey. Replace falls back to Copy (rewrite is on the clipboard).
+- [ ] **Password field.** Login screen password selected, hotkey → "Owlet won't read from password fields."
+- [ ] **Focus shift mid-generation.** Hotkey, click into another app before result. "Original text lost focus" warning; Copy works.
+- [ ] **Ollama down.** `pkill -f "ollama serve"`, then hotkey → "Looks like Ollama isn't running" + Retry.
+- [ ] **Rapid re-trigger.** Spam `fn+Ctrl+R` five times → one popup, in-flight cancelled.
+- [ ] **Oversize selection.** 17,000+ chars, hotkey → "That selection is too long."
+- [ ] **Empty selection.** Nothing selected, hotkey → "Select some text first."
+- [ ] **Identical rewrite.** Select "Hello." → "Looks good — no changes needed."
+- [ ] **Dark Mode.** Toggle to Dark, trigger popup. Diff colors readable.
+- [ ] **Unknown verb.** `open "owlet://translate"` → "That tool isn't available yet."
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| "Cannot reach Ollama" notification | Run `ollama serve` (or start the Ollama desktop app). |
-| First rewrite takes ~10s, later ones fast | Model cold-start. Confirm `echo $OLLAMA_KEEP_ALIVE` shows `24h` in the shell where `ollama serve` runs. |
-| Hotkey does nothing | Open Hammerspoon → Console; check for errors. Make sure Accessibility permission is granted in **System Settings → Privacy & Security → Accessibility**. On external keyboards, `fn` may not register — see the "Why fn + Ctrl + R" section. |
-| "Rewrite timed out (30s)" | Model is loading or machine is busy. Try again, or bump `TIMEOUT_SEC` in `rewrite_prompt.py`. |
-| `ModuleNotFoundError: pyperclip` when running manually | Use the venv interpreter: `~/repos/prompt-rewriter/.venv/bin/python3 rewrite_prompt.py`. The installer does not touch system Python; if you want to invoke the script with system `python3`, install the deps yourself with `pip install --user -r requirements.txt`. |
-| Notifications missing | Check **System Settings → Notifications → Script Editor** (osascript posts under that). |
+| Popup never appears on fn+Ctrl+R | Check Hammerspoon Console for errors. Verify Owlet has Accessibility in System Settings. |
+| "Looks like Ollama isn't running" | `ollama serve` in another terminal. |
+| Replace does nothing in some apps | App doesn't support AX text writes; fallback is automatic Cmd+V — `pbpaste` to verify rewrite is on clipboard, paste manually. |
+| Diff is hard to read | v1 ships foreground-only diff (no background tint). See spec section 6 for the v1.1 plan. |
+| First rewrite takes ~5 s | Model cold-start. `echo $OLLAMA_KEEP_ALIVE` should show `24h` in the shell running `ollama serve`. |
+| SourceKit "Cannot find Theme" / "No such module 'XCTest'" in editor | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` once. Build itself works; SourceKit needs the full Xcode toolchain. |
 
-## Manual run / debug
+## Why "Owlet"?
 
-```bash
-echo "i want make python code for scrape data" | pbcopy
-~/repos/prompt-rewriter/.venv/bin/python3 ~/repos/prompt-rewriter/rewrite_prompt.py
-pbpaste
-```
+A friendly small owl — inspired by the Pokémon Rowlet. The "-let" suffix reads as "small thing", which matches the toolkit's spirit: lots of tiny local-LLM helpers that fit in your pocket.
 
-`stdout` shows the original and rewritten text; useful when iterating on the system prompt.
-
-## Possible extensions (not implemented)
-
-- Multiple presets bound to different hotkeys (grammar-fix vs. expand-detail vs. translate).
-- Diff preview before overwriting the clipboard (e.g. `tkinter` or `hs.dialog`).
-- Streamed output to a floating Hammerspoon window instead of the single end-of-run notification.
+(Note: brand-search collision with Owlet Baby Care — different domain — accepted for a personal project.)

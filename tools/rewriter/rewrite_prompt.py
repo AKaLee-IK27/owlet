@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Rewrite the macOS clipboard's English prompt via local Ollama (qwen3:8b).
+"""Rewrite an English prompt via local Ollama (qwen3:8b).
 
-Reads clipboard, sends to Ollama /api/chat, writes the cleaned rewrite back.
-On any failure, the clipboard is left untouched and a notification is shown.
+Reads draft from stdin, writes the cleaned rewrite to stdout.
+On any failure: prints a short error to stderr and exits non-zero.
+The clipboard is never touched; no notifications are posted. This script is
+a pure CLI intended to be invoked by Owlet.app via Foundation.Process, or
+manually for debugging.
 """
 
 import re
-import subprocess
 import sys
 import warnings
 
 warnings.filterwarnings("ignore", module="urllib3")
 
-import pyperclip
 import requests
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -30,28 +31,7 @@ Output ONLY the rewritten prompt. No explanations, no preamble, no surrounding q
 THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
-def notify(message: str, title: str = "Prompt Rewriter") -> None:
-    """Best-effort macOS notification; failures are swallowed."""
-    safe_msg = message.replace("\\", "\\\\").replace('"', '\\"')
-    safe_title = title.replace("\\", "\\\\").replace('"', '\\"')
-    script = f'display notification "{safe_msg}" with title "{safe_title}"'
-    try:
-        subprocess.run(
-            ["osascript", "-e", script],
-            check=False,
-            capture_output=True,
-            timeout=5,
-        )
-    except Exception:
-        pass
-
-
 def strip_wrapping_quotes(text: str) -> str:
-    """Remove matched ASCII quotes that wrap the entire string.
-
-    Conservative: only strips when the quote character appears exactly twice
-    (at start and end), so prompts with legitimate inner quotes are untouched.
-    """
     text = text.strip()
     if (
         len(text) >= 2
@@ -64,9 +44,7 @@ def strip_wrapping_quotes(text: str) -> str:
 
 
 def clean_model_output(raw: str) -> str:
-    """Strip <think> safety blocks and wrapping quotes."""
-    without_think = THINK_BLOCK_RE.sub("", raw)
-    return strip_wrapping_quotes(without_think)
+    return strip_wrapping_quotes(THINK_BLOCK_RE.sub("", raw))
 
 
 def rewrite(prompt: str) -> str:
@@ -87,33 +65,27 @@ def rewrite(prompt: str) -> str:
 
 
 def main() -> int:
-    original = pyperclip.paste()
+    original = sys.stdin.read()
     if not original or not original.strip():
-        return 0
+        return 0  # silent: empty input is a no-op
 
     try:
         rewritten = rewrite(original)
     except requests.exceptions.Timeout:
-        notify("Rewrite timed out (30s); clipboard unchanged")
         print("ERROR: Ollama request timed out", file=sys.stderr)
         return 1
     except requests.exceptions.ConnectionError:
-        notify("Cannot reach Ollama at localhost:11434")
         print("ERROR: Ollama unreachable; is `ollama serve` running?", file=sys.stderr)
         return 1
     except Exception as exc:
-        notify(f"Rewrite failed: {exc}")
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
     if not rewritten.strip():
-        notify("Empty rewrite result; clipboard unchanged")
         print("ERROR: empty rewrite output", file=sys.stderr)
         return 1
 
-    pyperclip.copy(rewritten)
-    notify("Prompt rewritten")
-    print(f"ORIGINAL:\n{original}\n\nREWRITTEN:\n{rewritten}")
+    sys.stdout.write(rewritten)
     return 0
 
 
