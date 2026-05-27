@@ -205,45 +205,113 @@ extension AXBridge {
         }
         os_log("capture: post-release-wait, loops=%d", log: log, type: .info, loops)
 
-        // Use .privateState source — synthetic events from this source don't
-        // pick up the user's hardware modifier flags. (.hidSystemState merges
-        // hardware state, which is exactly what we DON'T want here.)
-        guard let src = CGEventSource(stateID: .privateState),
+        // Small settle delay so the kernel's "modifier released" state propagates
+        // to the focused app's event dispatcher before our synthetic Cmd+C arrives.
+        usleep(50_000)
+
+        // Try synthetic Cmd+C via .hidSystemState first (Hammerspoon uses this).
+        // Some Electron apps filter out non-hidSystemState events.
+        if postCmdCViaHID() {
+            // Poll for clipboard change (up to 1 s).
+            let deadline = Date().addingTimeInterval(1.0)
+            while pb.changeCount == beforeCount && Date() < deadline {
+                usleep(20_000)
+            }
+            if pb.changeCount != beforeCount {
+                os_log("capture: HID Cmd+C succeeded", log: log, type: .info)
+                return readResult(beforeCount: beforeCount, saved: saved, log: log)
+            }
+            os_log("capture: HID Cmd+C produced no clipboard change, falling back to AXMenuItem", log: log, type: .info)
+        }
+
+        // Fallback: find the source app's Edit > Copy menu item via AX and press it.
+        // Works in apps that reject synthetic keyboard events (Chromium / hardened Electron).
+        if pressCopyMenuItem() {
+            os_log("capture: AXMenuItem Copy pressed", log: log, type: .info)
+            let deadline2 = Date().addingTimeInterval(1.0)
+            while pb.changeCount == beforeCount && Date() < deadline2 {
+                usleep(20_000)
+            }
+            return readResult(beforeCount: beforeCount, saved: saved, log: log)
+        }
+
+        os_log("capture: both Cmd+C and AXMenu Copy failed", log: log, type: .error)
+        return nil
+    }
+
+    private static func postCmdCViaHID() -> Bool {
+        guard let src = CGEventSource(stateID: .hidSystemState),
               let down = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: true),
               let up   = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: false)
-        else {
-            os_log("capture: CGEvent construction failed", log: log, type: .error)
-            return nil
-        }
+        else { return false }
         down.flags = .maskCommand
         up.flags = .maskCommand
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
-        os_log("capture: posted Cmd+C", log: log, type: .info)
+        return true
+    }
 
-        // Poll for clipboard change (up to 1 s).
-        let deadline = Date().addingTimeInterval(1.0)
-        while pb.changeCount == beforeCount && Date() < deadline {
-            usleep(20_000)
+    /// Walks the source app's AX menu tree to find "Edit > Copy" and AXPresses it.
+    /// This bypasses synthetic-keyboard-event filtering used by some Electron apps.
+    private static func pressCopyMenuItem() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let appRef = AXUIElementCreateApplication(app.processIdentifier)
+        var menuBarRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appRef, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
+              let menuBar = menuBarRef else { return false }
+        let menuBarEl = menuBar as! AXUIElement
+
+        // Iterate menubar items (File, Edit, View, ...). Find "Edit".
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(menuBarEl, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else { return false }
+
+        for menuTitle in children {
+            var titleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(menuTitle, kAXTitleAttribute as CFString, &titleRef)
+            guard let title = titleRef as? String, title == "Edit" else { continue }
+
+            // The Edit menu's child is the actual menu (AXMenu) containing items.
+            var editChildrenRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(menuTitle, kAXChildrenAttribute as CFString, &editChildrenRef) == .success,
+                  let editChildren = editChildrenRef as? [AXUIElement],
+                  let editMenu = editChildren.first else { return false }
+
+            var menuItemsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(editMenu, kAXChildrenAttribute as CFString, &menuItemsRef) == .success,
+                  let menuItems = menuItemsRef as? [AXUIElement] else { return false }
+
+            for item in menuItems {
+                var itemTitleRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &itemTitleRef)
+                if let itemTitle = itemTitleRef as? String, itemTitle == "Copy" {
+                    let err = AXUIElementPerformAction(item, kAXPressAction as CFString)
+                    return err == .success
+                }
+            }
         }
+        return false
+    }
+
+    private static func readResult(beforeCount: Int, saved: String?, log: OSLog) -> (text: String, savedClipboard: String?)? {
+        let pb = NSPasteboard.general
         let afterCount = pb.changeCount
         let captured = pb.string(forType: .string)
         os_log("capture: afterCount=%d, capturedLen=%d", log: log, type: .info,
                afterCount, captured?.count ?? -1)
-
         if afterCount == beforeCount {
-            os_log("capture: NO clipboard change — source app didn't respond to Cmd+C", log: log, type: .error)
+            os_log("capture: NO clipboard change", log: log, type: .error)
             return nil
         }
         guard let text = captured, !text.isEmpty else {
-            os_log("capture: clipboard changed but text is empty/nil", log: log, type: .error)
+            os_log("capture: empty captured text", log: log, type: .error)
             return nil
         }
         if text == saved {
-            os_log("capture: clipboard changed but text matches saved (no new selection?)", log: log, type: .error)
+            os_log("capture: captured matches saved (no new selection)", log: log, type: .error)
             return nil
         }
-
         return (text: text, savedClipboard: saved)
+
     }
 }
