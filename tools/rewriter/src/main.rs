@@ -1,3 +1,12 @@
+#[derive(Debug)]
+enum RewriteError {
+    Timeout,
+    ConnectionRefused,
+    Http(String),
+    Parse(String),
+    Empty,
+}
+
 fn strip_think_blocks(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut rest = input;
@@ -34,6 +43,16 @@ fn strip_wrapping_quotes(input: &str) -> String {
 
 fn clean_output(raw: &str) -> String {
     strip_wrapping_quotes(&strip_think_blocks(raw))
+}
+
+fn parse_response(body: &str) -> Result<String, RewriteError> {
+    let v: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| RewriteError::Parse(e.to_string()))?;
+    v.get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| RewriteError::Parse("missing message.content".into()))
 }
 
 fn main() {
@@ -113,5 +132,35 @@ mod tests {
     fn clean_output_strips_think_then_quotes() {
         let raw = "<think>internal</think>\"the answer\"";
         assert_eq!(clean_output(raw), "the answer");
+    }
+
+    #[test]
+    fn parse_response_ok() {
+        let body = r#"{"message":{"content":"the rewrite"}}"#;
+        assert_eq!(parse_response(body).unwrap(), "the rewrite");
+    }
+
+    #[test]
+    fn parse_response_missing_message_returns_parse_err() {
+        let body = r#"{}"#;
+        assert!(matches!(parse_response(body), Err(RewriteError::Parse(_))));
+    }
+
+    #[test]
+    fn parse_response_missing_content_returns_parse_err() {
+        let body = r#"{"message":{}}"#;
+        assert!(matches!(parse_response(body), Err(RewriteError::Parse(_))));
+    }
+
+    #[test]
+    fn parse_response_invalid_json_returns_parse_err() {
+        assert!(matches!(parse_response("not json"), Err(RewriteError::Parse(_))));
+    }
+
+    #[test]
+    fn parse_response_preserves_think_block_for_later_strip() {
+        // parse_response is just JSON extraction. <think> stripping happens later.
+        let body = r#"{"message":{"content":"<think>x</think>final"}}"#;
+        assert_eq!(parse_response(body).unwrap(), "<think>x</think>final");
     }
 }
