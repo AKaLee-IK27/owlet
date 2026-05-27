@@ -13,18 +13,24 @@ final class OllamaClient {
     }
 
     private let executablePath: String
+    private let arguments: [String]
     private let environment: [String: String]
     private let timeoutSeconds: TimeInterval
 
     /// - Parameters:
-    ///   - executablePath: absolute path to the rewriter executable (Python script
-    ///     with a venv shebang, OR the fixture script in tests).
+    ///   - executablePath: absolute path to the executable to spawn (Python
+    ///     interpreter, OR the fixture script in tests).
+    ///   - arguments: command-line arguments. For production, this is the
+    ///     rewriter script path so `python3 rewrite_prompt.py` runs in script
+    ///     mode (not interactive — which would parse stdin as Python code).
     ///   - environment: extra env vars merged into the child's environment.
     ///   - timeoutSeconds: max wall-clock seconds before the child is terminated.
     init(executablePath: String,
+         arguments: [String] = [],
          environment: [String: String] = [:],
          timeoutSeconds: TimeInterval = 30) {
         self.executablePath = executablePath
+        self.arguments = arguments
         self.environment = environment
         self.timeoutSeconds = timeoutSeconds
     }
@@ -32,6 +38,7 @@ final class OllamaClient {
     func rewrite(_ input: String) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
         var env = ProcessInfo.processInfo.environment
         for (k, v) in environment { env[k] = v }
         process.environment = env

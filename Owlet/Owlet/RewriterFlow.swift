@@ -18,6 +18,10 @@ final class RewriterFlow: CaptureFlow {
          rewriter: Rewriting = OllamaClient(
             executablePath: NSString(string: "~/repos/owlet/tools/rewriter/.venv/bin/python3")
                 .expandingTildeInPath,
+            arguments: [
+                NSString(string: "~/repos/owlet/tools/rewriter/rewrite_prompt.py")
+                    .expandingTildeInPath
+            ],
             timeoutSeconds: 30
          ),
          popup: PopupWindowController = PopupWindowController()) {
