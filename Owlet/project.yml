@@ -27,14 +27,11 @@ targets:
       properties:
         CFBundleName: Owlet
         CFBundleDisplayName: Owlet
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2"
         LSUIElement: YES
         NSAccessibilityUsageDescription: "Owlet needs Accessibility to read the text you select and to replace it with the rewritten version when you click Replace."
-        CFBundleURLTypes:
-          - CFBundleURLName: co.greenpassport.owlet
-            CFBundleURLSchemes:
-              - owlet
+        NSInputMonitoringUsageDescription: "Owlet needs Input Monitoring to detect your fn+Ctrl+R hotkey system-wide."
     entitlements:
       path: Owlet/Owlet.entitlements
       properties:
