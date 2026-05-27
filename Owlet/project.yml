@@ -54,6 +54,9 @@ targets:
     platform: macOS
     sources:
       - path: OwletTests
+    # bundle fixtures into the test bundle
+    resources:
+      - path: OwletTests/Fixtures
     dependencies:
       - target: Owlet
     settings:
