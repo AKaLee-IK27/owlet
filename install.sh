@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Owlet v0.2 — idempotent installer.
-# Builds Owlet.app (self-contained: own hotkey + Cmd+C capture), installs to
-# ~/Applications, strips Gatekeeper quarantine, and (on upgrade) cleans up the
-# old Hammerspoon hotkey block from ~/.hammerspoon/init.lua. Hammerspoon is no
-# longer a dependency.
+# Owlet v0.3 — idempotent installer.
+# Builds Owlet.app (self-contained: own hotkey + Cmd+C capture), signs it with
+# a stable self-signed cert in the login keychain so TCC (Accessibility / Input
+# Monitoring) grants survive rebuilds, installs to ~/Applications, strips
+# Gatekeeper quarantine, and (on upgrade) cleans up the old Hammerspoon hotkey
+# block from ~/.hammerspoon/init.lua. Hammerspoon is no longer a dependency.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,6 +56,105 @@ else
     "$KEEP_ALIVE_LINE" >> "$ZSHRC"
 fi
 
+# ---------- Stable code signing identity ----------
+# v0.3+: sign with a self-signed cert that lives in the login keychain.
+# TCC keys Accessibility / Input Monitoring grants on (bundle ID, Designated
+# Requirement). The DR is derived from the signing cert, so as long as the
+# same cert signs every rebuild the grant persists. Ad-hoc signing (v0.1/v0.2)
+# left TCC keying on CDHash, which changes every build and forced a re-grant.
+CERT_NAME="Owlet Developer"
+OWLET_STATE_DIR="$HOME/.owlet"
+SIGNING_SENTINEL="$OWLET_STATE_DIR/.stable-signing-active"
+mkdir -p "$OWLET_STATE_DIR"
+
+# Use `find-identity` (not `find-certificate`) so we verify the private key
+# is also in the keychain — codesign needs both. A bare cert without its key,
+# or a cert in a different keychain, would pass `find-certificate` but break
+# the later `codesign --sign` with a cryptic error. Note: `-v` is intentionally
+# omitted because it filters out self-signed certs (CSSMERR_TP_NOT_TRUSTED),
+# which still work fine for codesign.
+if ! security find-identity -p codesigning 2>/dev/null | grep -qF "\"$CERT_NAME\""; then
+  echo "==> Creating self-signed code signing certificate '$CERT_NAME' in login keychain"
+  CERT_TMP="$OWLET_STATE_DIR/signing"
+  mkdir -p "$CERT_TMP"
+
+  # OpenSSL config (works with LibreSSL shipped on macOS; -addext does not).
+  cat > "$CERT_TMP/openssl.cnf" <<'CONF'
+[req]
+distinguished_name = req_dn
+prompt = no
+x509_extensions = v3_codesign
+
+[req_dn]
+CN = Owlet Developer
+
+[v3_codesign]
+basicConstraints = critical, CA:false
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+CONF
+
+  openssl req -new -newkey rsa:2048 -x509 -days 3650 -nodes \
+    -config "$CERT_TMP/openssl.cnf" \
+    -keyout "$CERT_TMP/owlet.key" \
+    -out "$CERT_TMP/owlet.crt" \
+    >/dev/null 2>&1
+
+  # OpenSSL 3.x defaults to a PKCS12 MAC algorithm that macOS `security`
+  # cannot verify — `-legacy` forces SHA-1 HMAC which works. LibreSSL (the
+  # system /usr/bin/openssl on macOS) doesn't recognise -legacy but produces
+  # the legacy format by default, so we only pass the flag when needed.
+  # Separately, macOS `security import` rejects truly-empty PKCS12 passwords,
+  # so a stable placeholder ("owlet") is used on both sides. It's not a real
+  # secret — the cert is ultimately protected by the user's login keychain.
+  PKCS12_LEGACY=""
+  if openssl version 2>/dev/null | grep -q "OpenSSL 3"; then
+    PKCS12_LEGACY="-legacy"
+  fi
+  # shellcheck disable=SC2086  # intentional word-splitting of optional flag
+  openssl pkcs12 -export $PKCS12_LEGACY \
+    -inkey "$CERT_TMP/owlet.key" \
+    -in "$CERT_TMP/owlet.crt" \
+    -out "$CERT_TMP/owlet.p12" \
+    -name "$CERT_NAME" \
+    -passout pass:owlet \
+    >/dev/null 2>&1
+
+  # -A = any application (including codesign) may use this private key
+  # without per-use prompting. Appropriate for a personal-machine tool;
+  # avoids needing the user's login keychain password to set a partition list.
+  if ! security import "$CERT_TMP/owlet.p12" \
+       -k "$HOME/Library/Keychains/login.keychain-db" \
+       -A \
+       -P "owlet" >/dev/null 2>&1; then
+    echo "ERROR: failed to import signing cert into login keychain." >&2
+    echo "       Try removing any old 'Owlet Developer' entries from Keychain Access" >&2
+    echo "       and re-running install.sh." >&2
+    exit 1
+  fi
+
+  # Sanity check: EKU made it through. If this fails the cert was imported
+  # but signing might not behave as expected — surface it loudly.
+  if ! security find-certificate -c "$CERT_NAME" -p \
+       | openssl x509 -text -noout 2>/dev/null \
+       | grep -q "Code Signing"; then
+    echo "WARNING: Code Signing EKU not detected on imported cert." >&2
+    echo "         codesign will still run but the DR may not lock to this cert." >&2
+  fi
+
+  rm -rf "$CERT_TMP"
+else
+  echo "==> Reusing existing '$CERT_NAME' certificate from login keychain"
+fi
+
+# Detect pre-v0.3 -> v0.3 migration so we can tccutil-reset once. Sentinel
+# file is touched only after a successful reset, so re-running install.sh
+# doesn't keep wiping the grant.
+OWLET_NEEDS_MIGRATION=0
+if [ ! -f "$SIGNING_SENTINEL" ]; then
+  OWLET_NEEDS_MIGRATION=1
+fi
+
 # ---------- Owlet.app (Xcode build + self-sign + install) ----------
 # DEVELOPER_DIR is set explicitly because xcode-select may point at the
 # Command Line Tools path; the full Xcode IDE is required for SwiftUI builds.
@@ -100,8 +200,22 @@ if [ ! -d "$BUILT_APP" ]; then
   exit 1
 fi
 
-echo "==> Self-signing Owlet.app"
-codesign --sign - --force --deep "$BUILT_APP"
+echo "==> Signing Owlet.app with '$CERT_NAME'"
+codesign --sign "$CERT_NAME" --force --deep "$BUILT_APP"
+# Verify the signature is valid AND that we used the cert we expected.
+# If a stray identity with the same CN exists in the keychain, codesign may
+# pick the wrong one — checking Authority here makes that loud, not silent.
+codesign --verify --verbose=2 "$BUILT_APP" 2>&1 | sed 's/^/    /'
+# Read codesign output FULLY (no early `exit` in awk) — early exit closes the
+# pipe and the upstream codesign dies with SIGPIPE, which `set -o pipefail`
+# then propagates and `set -e` turns into a silent script exit.
+SIGNING_AUTHORITY="$(codesign -dvv "$BUILT_APP" 2>&1 | awk -F'=' '/^Authority/ && !seen {print $2; seen=1}')"
+if [ "$SIGNING_AUTHORITY" != "$CERT_NAME" ]; then
+  echo "ERROR: app signed with '$SIGNING_AUTHORITY', expected '$CERT_NAME'." >&2
+  echo "       Run 'security find-identity -v -p codesigning' to inspect." >&2
+  exit 1
+fi
+echo "    Authority: $SIGNING_AUTHORITY (stable — TCC grants persist across rebuilds)"
 
 echo "==> Installing to $OWLET_INSTALL_DIR/"
 mkdir -p "$OWLET_INSTALL_DIR"
@@ -137,9 +251,29 @@ if [ -f "$HS_INIT" ]; then
   done
 fi
 
+# ---------- Migration: ad-hoc -> stable identity ----------
+# On the first install with a stable signing identity we MUST tccutil-reset
+# the old ad-hoc Owlet entries — the new DR doesn't match the old grant, so
+# without a reset the user sees "✓ in Settings, ✗ in app" forever. Once done,
+# the sentinel file prevents repeating the reset on subsequent rebuilds.
+if [ "$OWLET_NEEDS_MIGRATION" = "1" ]; then
+  echo "==> First install with stable identity — resetting TCC for co.greenpassport.owlet"
+  # Kill the running ad-hoc-signed Owlet so the newly-signed build relaunches
+  # cleanly. Without this `open` would just activate the stale instance.
+  pkill -x Owlet >/dev/null 2>&1 || true
+  tccutil reset Accessibility co.greenpassport.owlet >/dev/null 2>&1 || true
+  tccutil reset ListenEvent co.greenpassport.owlet >/dev/null 2>&1 || true
+  touch "$SIGNING_SENTINEL"
+fi
+
 # ---------- Launch + open permission panes ----------
 OWLET_FRESH_INSTALL=0
 if ! pgrep -x "Owlet" >/dev/null 2>&1; then
+  OWLET_FRESH_INSTALL=1
+fi
+# A migration looks like a fresh install for permission flow — both panes
+# need to open so the user can re-toggle under the new identity row.
+if [ "$OWLET_NEEDS_MIGRATION" = "1" ]; then
   OWLET_FRESH_INSTALL=1
 fi
 open "$OWLET_INSTALL_DIR/$OWLET_APP_NAME"
@@ -160,27 +294,39 @@ cat <<'EOF'
 
 EOF
 
-if [ "$OWLET_FRESH_INSTALL" = "1" ]; then
+if [ "$OWLET_NEEDS_MIGRATION" = "1" ]; then
   cat <<'EOF'
-NOTE: v0.2 first install — Owlet needs TWO macOS permissions:
+NOTE: Migrated from ad-hoc to stable signing identity.
+
+Your prior Accessibility and Input Monitoring grants were tied to the old
+ad-hoc signature and have been reset. Both System Settings panes are now
+open. Toggle Owlet ON in EACH, then relaunch Owlet from ~/Applications.
+
+After this one re-grant, future `./install.sh` rebuilds KEEP the
+permission — no more grant-on-every-build.
+EOF
+elif [ "$OWLET_FRESH_INSTALL" = "1" ]; then
+  cat <<'EOF'
+NOTE: First install — Owlet needs TWO macOS permissions:
 
   • Accessibility    — to read your selection and replace it with the rewrite
   • Input Monitoring — to detect your fn+Ctrl+R hotkey
 
 Both panes are now open. Toggle Owlet ON in EACH, then relaunch
-Owlet from /Applications. After that, fn+Ctrl+R works in every app.
+Owlet from ~/Applications. After that, fn+Ctrl+R works in every app.
 
-Owlet will auto-launch on login from now on.
+Owlet will auto-launch on login from now on. The stable signing identity
+means you only ever grant these permissions ONCE.
 EOF
-fi
-
-if [ "$OWLET_FRESH_INSTALL" = "0" ]; then
+else
   cat <<'EOF'
 Owlet rebuilt and installed at ~/Applications/Owlet.app.
 
-If permissions were invalidated by the new signature (ad-hoc sign means
-TCC re-grant is needed on every rebuild), the launched Owlet will show
-the permission modal. Re-toggle both Accessibility and Input Monitoring,
-then relaunch.
+Stable signing identity is in use — your existing Accessibility and Input
+Monitoring grants carry over without re-toggling.
+
+If Owlet was already running, the old binary is still in memory. Use
+"Restart Owlet" from the menu bar (or quit + relaunch) to pick up the
+new build.
 EOF
 fi
