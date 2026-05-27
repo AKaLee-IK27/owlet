@@ -67,6 +67,66 @@ else
   echo "      Install Hammerspoon manually from https://www.hammerspoon.org/"
 fi
 
+# ---------- Owlet.app (Xcode build + self-sign + install) ----------
+# NOTE: xcodebuild requires the full Xcode IDE (not just Command Line Tools).
+# DEVELOPER_DIR is set explicitly because xcode-select may point at CLT-only
+# path (/Library/Developer/CommandLineTools) on some machines; the full Xcode
+# IDE is required for SwiftUI builds. (Plan deviation: plan omits DEVELOPER_DIR.)
+if ! command -v xcodebuild >/dev/null 2>&1; then
+  echo "ERROR: 'xcodebuild' not on PATH. Install Xcode (full IDE, not just" >&2
+  echo "       the Command Line Tools), then re-run." >&2
+  exit 1
+fi
+
+if ! command -v xcodegen >/dev/null 2>&1; then
+  echo "==> Installing xcodegen (needed to generate Owlet.xcodeproj)"
+  brew install xcodegen
+fi
+
+OWLET_XCODE_DIR="$HERE/Owlet"
+OWLET_APP_NAME="Owlet.app"
+OWLET_INSTALL_DIR="$HOME/Applications"
+
+echo "==> Regenerating Owlet.xcodeproj"
+(cd "$OWLET_XCODE_DIR" && xcodegen generate >/dev/null)
+
+echo "==> Building Owlet.app (Release)"
+(cd "$OWLET_XCODE_DIR" \
+  && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+     xcodebuild -project Owlet.xcodeproj -scheme Owlet -configuration Release \
+       -derivedDataPath build clean build >/dev/null)
+
+BUILT_APP="$OWLET_XCODE_DIR/build/Build/Products/Release/$OWLET_APP_NAME"
+if [ ! -d "$BUILT_APP" ]; then
+  echo "ERROR: build did not produce $BUILT_APP" >&2
+  exit 1
+fi
+
+echo "==> Self-signing Owlet.app"
+codesign --sign - --force --deep "$BUILT_APP"
+
+echo "==> Installing to $OWLET_INSTALL_DIR/"
+mkdir -p "$OWLET_INSTALL_DIR"
+rm -rf "$OWLET_INSTALL_DIR/$OWLET_APP_NAME"
+cp -R "$BUILT_APP" "$OWLET_INSTALL_DIR/"
+
+# Re-register Launch Services so the owlet:// URL scheme picks up the new app.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -R -f -trusted "$OWLET_INSTALL_DIR/$OWLET_APP_NAME" 2>/dev/null || true
+
+# Launch on first install so the user can grant Accessibility.
+OWLET_FRESH_INSTALL=0
+if ! pgrep -x "Owlet" >/dev/null 2>&1; then
+  OWLET_FRESH_INSTALL=1
+fi
+open "$OWLET_INSTALL_DIR/$OWLET_APP_NAME"
+
+if [ "$OWLET_FRESH_INSTALL" = "1" ]; then
+  echo "==> Opening System Settings -> Privacy & Security -> Accessibility for Owlet"
+  open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" \
+    >/dev/null 2>&1 || true
+fi
+
 # ---------- ~/.hammerspoon/init.lua ----------
 # Derive the project's path relative to $HOME so the Lua block is portable:
 # moving this folder anywhere under $HOME just needs another `./install.sh`.
@@ -169,3 +229,13 @@ If OLLAMA_KEEP_ALIVE was just added to ~/.zshrc, open a new terminal so
 the variable is in scope when you (re)start `ollama serve`.
 
 EOF
+
+if [ "$OWLET_FRESH_INSTALL" = "1" ]; then
+  cat <<'EOF'
+
+NOTE: First install — Owlet needs ITS OWN Accessibility grant
+(separate from Hammerspoon's, because TCC permissions don't transfer
+across apps). Toggle "Owlet" ON in the pane that just opened, then
+press fn+Ctrl+R to test.
+EOF
+fi
