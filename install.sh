@@ -5,7 +5,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$HERE/.venv"
+VENV="$HERE/tools/rewriter/.venv"
 MODEL="qwen3:8b"
 ZSHRC="$HOME/.zshrc"
 KEEP_ALIVE_LINE='export OLLAMA_KEEP_ALIVE=24h'
@@ -28,6 +28,7 @@ echo "==> Pulling model: $MODEL"
 ollama pull "$MODEL"
 
 # ---------- Python venv ----------
+mkdir -p "$HERE/tools/rewriter"
 if [ ! -d "$VENV" ]; then
   echo "==> Creating venv at $VENV"
   python3 -m venv "$VENV"
@@ -37,9 +38,9 @@ fi
 
 echo "==> Installing Python dependencies"
 "$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet -r "$HERE/requirements.txt"
+"$VENV/bin/pip" install --quiet -r "$HERE/tools/rewriter/requirements.txt"
 
-chmod +x "$HERE/rewrite_prompt.py"
+chmod +x "$HERE/tools/rewriter/rewrite_prompt.py"
 
 # ---------- Shell env: OLLAMA_KEEP_ALIVE ----------
 if [ -f "$ZSHRC" ] && grep -Fq "OLLAMA_KEEP_ALIVE" "$ZSHRC"; then
@@ -84,8 +85,8 @@ HS_BLOCK_TEMPLATE="$(cat <<'LUA'
 hs.allowAppleScript(true)  -- lets `./install.sh` call hs.reload() via osascript
 do
     local home = os.getenv("HOME")
-    local python = home .. "/__SCRIPT_ROOT__/.venv/bin/python3"
-    local script = home .. "/__SCRIPT_ROOT__/rewrite_prompt.py"
+    local python = home .. "/__SCRIPT_ROOT__/tools/rewriter/.venv/bin/python3"
+    local script = home .. "/__SCRIPT_ROOT__/tools/rewriter/rewrite_prompt.py"
 
     local function runRewrite()
         hs.task.new(python, function(exitCode, stdOut, stdErr)
