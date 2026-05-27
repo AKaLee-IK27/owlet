@@ -166,7 +166,7 @@ Why a single file: this is ~150–200 LOC. Splitting into modules would obscure 
 |---|---|---|
 | Empty stdin | (nothing) | 0 |
 | Ollama timeout (>30s) | `ERROR: Ollama request timed out` | 1 |
-| Ollama connection refused | `ERROR: Ollama unreachable; is 'ollama serve' running?` | 1 (the **`Connection`** substring is what `RewriterFlow.swift:75` keys on for `.ollamaDown`) |
+| Ollama connection refused | `ERROR: Connection to Ollama refused; is 'ollama serve' running?` | 1 (the **`Connection`** substring is what `RewriterFlow.swift:75` keys on for `.ollamaDown`; this corrects a pre-existing inconsistency where the Python script's message lacked the substring) |
 | Non-200 HTTP | `ERROR: Ollama HTTP <code>: <body excerpt>` | 1 |
 | JSON parse failure | `ERROR: malformed Ollama response: <reason>` | 1 |
 | Empty model output | `ERROR: empty rewrite output` | 1 |
