@@ -1,6 +1,6 @@
 # Owlet
 
-Small, friendly local-LLM tools for macOS. v1 ships **Owlet Rewriter** — a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen3:8b`). No cloud, no API keys, no browser extension.
+Small, friendly local-LLM tools for macOS. v0.2 ships **Owlet Rewriter** — a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen3:8b`). No cloud, no API keys, no browser extension.
 
 **Workflow:** select text → press `fn+Ctrl+R` → review the inline diff → click Replace (in-place) or Copy.
 
@@ -8,7 +8,7 @@ Small, friendly local-LLM tools for macOS. v1 ships **Owlet Rewriter** — a Gra
 
 - macOS 14+ (tested on macOS 26.5 Apple Silicon)
 - [Ollama](https://ollama.com/download)
-- [Homebrew](https://brew.sh) — used to install Hammerspoon and xcodegen
+- [Homebrew](https://brew.sh) — used to install xcodegen
 - Xcode (full IDE — Command Line Tools alone are not enough)
 
 ## Install
@@ -22,16 +22,13 @@ The installer:
 
 1. Pulls `qwen3:8b` (~5.2 GB) via Ollama.
 2. Creates a Python venv at `tools/rewriter/.venv/` and installs deps.
-3. Adds `OLLAMA_KEEP_ALIVE=24h` to `~/.zshrc` (only if not already set).
-4. Installs Hammerspoon via brew if missing.
-5. Refreshes the `fn+Ctrl+R` block in `~/.hammerspoon/init.lua` to fire `owlet://rewrite`.
-6. Installs xcodegen if missing.
-7. Generates `Owlet.xcodeproj`, builds Release, self-signs, and copies to `~/Applications/Owlet.app`.
-8. Launches Owlet and opens System Settings → Accessibility on a fresh install.
+3. Adds `OLLAMA_KEEP_ALIVE=24h` to `~/.zshrc` if not already set.
+4. Installs xcodegen if missing.
+5. Builds `Owlet.app` (Release), self-signs ad-hoc, copies to `~/Applications/`.
+6. Strips Gatekeeper quarantine (`xattr -dr com.apple.quarantine`).
+7. Launches Owlet and opens System Settings for both required permissions.
 
-**Manual step (once):** toggle **Owlet** ON in the Accessibility pane that opens. macOS won't let scripts grant TCC permissions; this is the only step that isn't automated.
-
-> Note: `xcode-select` must point at the full Xcode IDE, not Command Line Tools. If you see SourceKit errors in your editor about `XCTest` or `Theme` "not found," run once: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`. The installer itself uses `DEVELOPER_DIR` so it works either way.
+**Manual step (once):** toggle **Owlet** ON in BOTH `Privacy & Security → Accessibility` AND `Privacy & Security → Input Monitoring`, then relaunch Owlet from `/Applications`. macOS doesn't allow scripts to grant TCC permissions.
 
 ## Usage
 
@@ -40,11 +37,17 @@ The installer:
 3. Review the inline diff (deleted words in red strikethrough, added words in green).
 4. **Enter** to Replace · **Cmd+C** to Copy · **Esc** to Cancel.
 
+In Electron apps (Slack, Discord, VS Code, Notion, Claude desktop) and Chromium browsers, Owlet's AX read returns nothing — the fallback path uses synthetic `Cmd+C`, which works in every app that responds to Cmd+C. Replace in these apps puts the rewrite on the clipboard for manual `Cmd+V`.
+
+## Auto-launch at login
+
+On first successful launch (after permissions are granted) Owlet registers itself as a Login Item via `SMAppService`. You can disable this in `System Settings → General → Login Items`. If you disable it, Owlet's hotkey works only when you launch the app manually.
+
 ## Customisation
 
-- **Change the hotkey:** edit the eventtap block in `~/.hammerspoon/init.lua` between the `prompt-rewriter:hotkey BEGIN/END` markers. Reload Hammerspoon (menu bar → Reload Config). `fn` requires the eventtap path; non-`fn` chords can use `hs.hotkey.bind`.
 - **Change the model:** edit `MODEL = "qwen3:8b"` in `tools/rewriter/rewrite_prompt.py`.
 - **Change the prompt:** edit `SYSTEM_PROMPT` in the same file.
+- **Change the hotkey:** v0.2 hardcodes `fn+Ctrl+R`. Configurable hotkey is a v0.3 follow-up.
 
 ## Project layout
 
@@ -57,43 +60,42 @@ The installer:
 └── README.md
 ```
 
-## Roadmap
-
-- **v0.1 (this release):** Owlet Rewriter with popup, inline diff, Replace/Copy.
-- **Next:** Owlet Translator (`owlet://translate`) for VI ↔ EN.
-- **After that:** Owlet Grammar (`owlet://grammar`) for grammar-focused feedback.
-
-The single `Owlet.app` binary hosts all future commands — adding one means writing a new `*Flow.swift` and registering the verb, no new app bundle needed.
-
 ## Manual smoke test checklist
 
-After install, walk through these to confirm everything works:
+After install:
 
-- [ ] **TextEdit happy path.** Type a rough draft, select, `fn+Ctrl+R`. Popup → loading → result with inline diff → Enter → text replaced in place.
-- [ ] **Safari article body (read-only).** Highlight text in a Safari article, hotkey. Replace falls back to Copy (rewrite is on the clipboard).
-- [ ] **Password field.** Login screen password selected, hotkey → "Owlet won't read from password fields."
-- [ ] **Focus shift mid-generation.** Hotkey, click into another app before result. "Original text lost focus" warning; Copy works.
-- [ ] **Ollama down.** `pkill -f "ollama serve"`, then hotkey → "Looks like Ollama isn't running" + Retry.
-- [ ] **Rapid re-trigger.** Spam `fn+Ctrl+R` five times → one popup, in-flight cancelled.
-- [ ] **Oversize selection.** 17,000+ chars, hotkey → "That selection is too long."
-- [ ] **Empty selection.** Nothing selected, hotkey → "Select some text first."
-- [ ] **Identical rewrite.** Select "Hello." → "Looks good — no changes needed."
-- [ ] **Dark Mode.** Toggle to Dark, trigger popup. Diff colors readable.
-- [ ] **Unknown verb.** `open "owlet://translate"` → "That tool isn't available yet."
+- [ ] **TextEdit** — type a draft, select, `fn+Ctrl+R`. Popup with inline diff → Enter → text replaced in place.
+- [ ] **Claude desktop** (Electron) — same flow → popup → Replace puts rewrite on clipboard for `Cmd+V`.
+- [ ] **Chrome / Safari article body** — same as Claude.
+- [ ] **Slack / Discord / Notion / VS Code** — same.
+- [ ] **Terminal / iTerm / Ghostty** — same.
+- [ ] **Empty selection** — popup shows "Select some text first".
+- [ ] **Password field** — popup shows "Owlet won't read from password fields".
+- [ ] **Spam fn+Ctrl+R rapidly** — only one popup, in-flight cancelled.
+- [ ] **Kill Owlet** via Activity Monitor → press hotkey → nothing (expected).
+- [ ] **Reboot** → Owlet auto-launches → hotkey works.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| Popup never appears on fn+Ctrl+R | Check Hammerspoon Console for errors. Verify Owlet has Accessibility in System Settings. |
+| Hotkey doesn't fire | Check Owlet is running (Activity Monitor). Verify Accessibility AND Input Monitoring are both ON in System Settings. |
+| Permission revoked surprise alert | A required permission was disabled in System Settings. Re-toggle and relaunch Owlet. |
+| Owlet quit on first launch | Permission modal expected Quit — you need to grant permissions in System Settings then relaunch from `/Applications`. |
+| First rewrite takes ~5 s | Model cold-start. `OLLAMA_KEEP_ALIVE=24h` keeps it warm. |
 | "Looks like Ollama isn't running" | `ollama serve` in another terminal. |
-| Replace does nothing in some apps | App doesn't support AX text writes; fallback is automatic Cmd+V — `pbpaste` to verify rewrite is on clipboard, paste manually. |
-| Diff is hard to read | v1 ships foreground-only diff (no background tint). See spec section 6 for the v1.1 plan. |
-| First rewrite takes ~5 s | Model cold-start. `echo $OLLAMA_KEEP_ALIVE` should show `24h` in the shell running `ollama serve`. |
-| SourceKit "Cannot find Theme" / "No such module 'XCTest'" in editor | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` once. Build itself works; SourceKit needs the full Xcode toolchain. |
+| Replace does nothing in some apps | Apps without AX text-write support fall back to clipboard. Press `Cmd+V` to paste manually. |
+
+## Upgrading from v0.1
+
+v0.2 removes the Hammerspoon dependency. Re-running `install.sh` will:
+- Strip the `prompt-rewriter:hotkey` block from `~/.hammerspoon/init.lua` (other Lua content is preserved).
+- Build and install the new self-contained `Owlet.app`.
+
+The new Owlet.app's ad-hoc signature is different from v0.1's, so macOS invalidates the existing Accessibility grant. You'll need to re-grant Accessibility AND grant Input Monitoring (new in v0.2) before fn+Ctrl+R works again.
+
+Hammerspoon itself is left installed if you had it. It's no longer required.
 
 ## Why "Owlet"?
 
-A friendly small owl — inspired by the Pokémon Rowlet. The "-let" suffix reads as "small thing", which matches the toolkit's spirit: lots of tiny local-LLM helpers that fit in your pocket.
-
-(Note: brand-search collision with Owlet Baby Care — different domain — accepted for a personal project.)
+A friendly small owl — inspired by the Pokémon Rowlet. The "-let" suffix reads as "small thing", matching the toolkit's spirit.
