@@ -114,4 +114,26 @@ final class RewriterFlowTests: XCTestCase {
         await flow.start()
         XCTAssertEqual(flow.lastObservedState, .error(.passwordField))
     }
+
+    @MainActor
+    func test_capture_withNilFocus_clipboardOnly() async {
+        // Simulates an Electron app: AX gives no focus, but Hammerspoon
+        // already put the selection on the clipboard.
+        let ax = MockAX()
+        ax.outcome = .captured(SelectionSnapshot(
+            text: "captured via clipboard",
+            sourceAppBundleID: "com.example.electron",
+            focusedElement: nil,
+            captureMethod: .clipboardFallback
+        ))
+        let rewriter = MockRewriter()
+        rewriter.response = .success("Captured via clipboard.")
+        let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
+        await flow.start()
+        if case .result(_, _, _, let canReplace) = flow.lastObservedState {
+            XCTAssertTrue(canReplace, "canReplace stays true; handleReplace falls back to clipboard write")
+        } else {
+            XCTFail("expected .result, got \(String(describing: flow.lastObservedState))")
+        }
+    }
 }

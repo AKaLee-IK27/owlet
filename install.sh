@@ -151,15 +151,43 @@ HS_BLOCK_TEMPLATE="$(cat <<'LUA'
 -- ===== prompt-rewriter:hotkey BEGIN =====
 -- Owlet Rewriter: fn + Control + R
 -- Uses hs.eventtap because hs.hotkey.bind cannot detect the fn modifier.
--- Hammerspoon's only job here is to forward the chord as an owlet:// URL;
--- Owlet.app handles capture, popup, AX replacement.
+-- Hammerspoon fires Cmd+C in the still-focused source app, then opens the
+-- owlet:// URL. Owlet reads the clipboard for the selection text.
+-- This makes capture work in Electron/Chrome/Terminal (non-AX-cooperative apps).
 hs.allowAppleScript(true)  -- lets `./install.sh` call hs.reload() via osascript
 do
     local function trigger()
-        -- -g: open in background, do NOT bring Owlet to foreground.
-        -- Critical so the source app keeps focus and Owlet's AX
-        -- captureSelection() reads from the right element.
+        -- Save user's clipboard so we can restore it.
+        local saved = hs.pasteboard.getContents()
+        local beforeCount = hs.pasteboard.changeCount()
+
+        -- Synthetic Cmd+C in the still-focused source app.
+        hs.eventtap.keyStroke({"cmd"}, "c", 0)
+
+        -- Wait up to 1 second for the clipboard to change.
+        local deadline = hs.timer.secondsSinceEpoch() + 1.0
+        while hs.pasteboard.changeCount() == beforeCount
+            and hs.timer.secondsSinceEpoch() < deadline do
+            hs.timer.usleep(20000)
+        end
+
+        local captured = hs.pasteboard.getContents()
+        if not captured or captured == "" or captured == saved then
+            -- Cmd+C produced nothing — no selection, or app didn't respond.
+            if saved then hs.pasteboard.setContents(saved) end
+            hs.alert.show("Owlet: nothing selected")
+            return
+        end
+
+        -- Owlet will read the clipboard now. Fire the URL in background.
         hs.execute("open -g owlet://rewrite")
+
+        -- Restore the saved clipboard after the user has had time to act
+        -- on the popup. 30 s is generous; if user takes longer their selection
+        -- text stays on the clipboard (acceptable).
+        hs.timer.doAfter(30, function()
+            if saved then hs.pasteboard.setContents(saved) end
+        end)
     end
 
     if _G.__owletTap then
