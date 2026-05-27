@@ -49,4 +49,11 @@ final class DiffEngineTests: XCTestCase {
         XCTAssertTrue(DiffResult.shouldCollapse(removedRatio: 0.71))
         XCTAssertTrue(DiffResult.shouldCollapse(removedRatio: 0.70 + .ulpOfOne))
     }
+
+    func test_tokenizer_handlesNewlinesAndTabs() {
+        // Mixed whitespace must not bundle into single tokens.
+        let result = DiffEngine.diff("first\nline", "First\nline")
+        XCTAssertEqual(result.segments.map(\.text), ["first", "First", "line"])
+        XCTAssertEqual(result.segments.map(\.kind), [.removed, .added, .unchanged])
+    }
 }

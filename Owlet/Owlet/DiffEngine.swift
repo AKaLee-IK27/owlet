@@ -84,6 +84,6 @@ enum DiffEngine {
     /// good enough for prompt-level diffs; revisit if tokenization granularity
     /// becomes a UX problem.
     private static func tokenize(_ s: String) -> [String] {
-        s.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     }
 }
