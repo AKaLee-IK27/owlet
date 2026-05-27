@@ -93,9 +93,38 @@ final class RewriterFlow: CaptureFlow {
 
     private func setState(_ state: PopupState) {
         lastObservedState = state
-        // Production callback (no-op in tests until we add a popup spy):
-        // popup.show(...) wiring goes here when integrating with PopupWindowController.
-        // For now the popup hookup is documented in Phase 6 wiring task; this state
-        // setter is what tests observe.
+        popup.show(
+            PopupView(state: state,
+                      onReplace: { [weak self] in self?.handleReplace() },
+                      onCopy:    { [weak self] in self?.handleCopy() },
+                      onCancel:  { [weak self] in self?.handleCancel() },
+                      onRetry:   { Task { [weak self] in await self?.start() } }),
+            anchorRect: nil // Phase 8 manual smoke: refine anchor from snap.focusedElement
+        )
     }
+
+    private func handleReplace() {
+        guard case .result(_, let rewritten, _, _) = lastObservedState else { return }
+        // Re-validate focus and replace via AXBridge. Snapshot kept in `_currentFocusedElement`.
+        if let element = _currentFocusedElement {
+            let result = ax.replaceSelection(rewritten, in: element)
+            switch result {
+            case .okAX, .okPaste: popup.hide()
+            case .failed(let msg):
+                if msg.contains("focus changed") { setState(.error(.focusLost)) }
+                else { setState(.error(.backendUnavailable(message: msg))) }
+            }
+        } else {
+            setState(.error(.focusLost))
+        }
+    }
+
+    private func handleCopy() {
+        guard case .result(_, let rewritten, _, _) = lastObservedState else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(rewritten, forType: .string)
+        popup.hide()
+    }
+
+    private func handleCancel() { popup.hide() }
 }
