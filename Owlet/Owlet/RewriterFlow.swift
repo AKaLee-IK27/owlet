@@ -15,19 +15,26 @@ final class RewriterFlow: CaptureFlow {
     private var _currentFocusedElement: AXUIElement?
 
     init(ax: AXBridging = AXBridgeAdapter(),
-         rewriter: Rewriting = OllamaClient(
-            executablePath: NSString(string: "~/repos/owlet/tools/rewriter/.venv/bin/python3")
-                .expandingTildeInPath,
-            arguments: [
-                NSString(string: "~/repos/owlet/tools/rewriter/rewrite_prompt.py")
-                    .expandingTildeInPath
-            ],
-            timeoutSeconds: 30
-         ),
+         rewriter: Rewriting? = nil,
          popup: PopupWindowController = PopupWindowController()) {
         self.ax = ax
-        self.rewriter = rewriter
         self.popup = popup
+        self.rewriter = rewriter ?? Self.makeDefaultRewriter()
+    }
+
+    /// Build the production OllamaClient using the rewriter directory written
+    /// to UserDefaults by install.sh (`defaults write co.greenpassport.owlet
+    /// rewriterDirectory ...`). Falls back to the legacy ~/repos/owlet path
+    /// only when no default is set — useful for first-launch-without-install
+    /// debugging, never expected in production.
+    private static func makeDefaultRewriter() -> Rewriting {
+        let fallback = NSString(string: "~/repos/owlet/tools/rewriter").expandingTildeInPath
+        let dir = UserDefaults.standard.string(forKey: "rewriterDirectory") ?? fallback
+        return OllamaClient(
+            executablePath: "\(dir)/.venv/bin/python3",
+            arguments: ["\(dir)/rewrite_prompt.py"],
+            timeoutSeconds: 30
+        )
     }
 
     private static let inputSoftWarn = 4_000

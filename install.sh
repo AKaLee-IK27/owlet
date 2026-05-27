@@ -110,6 +110,10 @@ mkdir -p "$OWLET_INSTALL_DIR"
 rm -rf "$OWLET_INSTALL_DIR/$OWLET_APP_NAME"
 cp -R "$BUILT_APP" "$OWLET_INSTALL_DIR/"
 
+# Tell Owlet where to find the rewriter venv + script. install.sh runs from
+# the repo root, so $HERE/tools/rewriter is canonical regardless of clone path.
+defaults write co.greenpassport.owlet rewriterDirectory "$HERE/tools/rewriter"
+
 # Re-register Launch Services so the owlet:// URL scheme picks up the new app.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
   -R -f -trusted "$OWLET_INSTALL_DIR/$OWLET_APP_NAME" 2>/dev/null || true
