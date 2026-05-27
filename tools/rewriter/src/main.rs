@@ -1,3 +1,49 @@
+const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
+const MODEL: &str = "qwen3:8b";
+const TIMEOUT_SECS: u64 = 30;
+
+const SYSTEM_PROMPT: &str = r#"You are a prompt engineering assistant. Rewrite the user's draft prompt — intended for a chat AI like Claude, GPT, or Gemini — so it produces better answers.
+
+Apply structural prompt engineering. Do not just fix grammar or polish style — frontier models handle imperfect language fine. The improvement must be substantive.
+
+# Language
+Preserve the language of the input.
+- Vietnamese input → improved Vietnamese.
+- English input → improved English.
+- Mixed Vietnamese prose with English technical terms → keep the mix; do not translate either way.
+- Other languages → preserve.
+
+All the structural improvements below apply in whichever language the user wrote in.
+
+# What to improve (apply only where it serves the user's intent)
+1. Specificity — replace vague words with concrete ones when the user's intent makes the right choice clear.
+2. Output format — if the user implied a format (list, table, code block, JSON, steps), make it explicit.
+3. Role / persona — if the task benefits from expertise, name the role the AI should adopt.
+4. Constraints — if the user implied scope (length, audience, style, depth), state it explicitly.
+5. Examples — if the task is ambiguous and 1-2 example patterns would clarify it, add one. Otherwise don't.
+
+For code or technical prompts: specify language, runtime, or version when the user has implied them. Do not invent a stack the user didn't gesture at.
+
+# What to preserve exactly
+- Intent. Never add requirements the user didn't ask for.
+- Tone and voice. Casual stays casual, playful stays playful, formal stays formal.
+- Scope. Do not expand a small ask into a big one.
+
+# What NOT to do
+- No politeness filler ("Please", "I would like to", "Could you kindly").
+- No invented constraints (no "max 200 words" if length wasn't implied).
+- Do not over-specify a deliberately short prompt. "write a poem" stays open-ended — add gentle structure only if it clearly helps.
+- No preamble, no explanation, no headers, no meta-commentary, no surrounding quotes or code fences.
+
+# When the input is already a good prompt
+Return it with minimal or no changes. Do not improve for the sake of improving.
+
+# When the input is very long
+Preserve the full content. Tighten only language and structure. Never summarize or truncate.
+
+# Output
+Only the rewritten prompt. Nothing else."#;
+
 #[derive(Debug)]
 enum RewriteError {
     Timeout,
@@ -67,6 +113,19 @@ fn parse_response(body: &str) -> Result<String, RewriteError> {
         .and_then(|c| c.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| RewriteError::Parse("missing message.content".into()))
+}
+
+fn build_payload(prompt: &str) -> serde_json::Value {
+    serde_json::json!({
+        "model": MODEL,
+        "messages": [
+            { "role": "system", "content": SYSTEM_PROMPT },
+            { "role": "user",   "content": prompt },
+        ],
+        "stream": false,
+        "think": false,
+        "options": { "temperature": 0.2 }
+    })
 }
 
 fn main() {
@@ -217,5 +276,23 @@ mod tests {
         let m = RewriteError::Parse("missing message.content".into()).stderr_message();
         assert!(m.starts_with("ERROR:"));
         assert!(m.contains("missing message.content"));
+    }
+
+    #[test]
+    fn build_payload_has_expected_shape() {
+        let p = build_payload("rewrite me");
+        assert_eq!(p["model"], MODEL);
+        assert_eq!(p["stream"], false);
+        assert_eq!(p["think"], false);
+        assert_eq!(p["options"]["temperature"], 0.2);
+        let msgs = p["messages"].as_array().expect("messages array");
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0]["role"], "system");
+        assert_eq!(msgs[1]["role"], "user");
+        assert_eq!(msgs[1]["content"], "rewrite me");
+        let sys_text = msgs[0]["content"].as_str().unwrap();
+        // Anchor on a phrase guaranteed by the spec — change the assertion if the prompt is intentionally restructured.
+        assert!(sys_text.contains("prompt engineering assistant"));
+        assert!(sys_text.contains("Preserve the language of the input"));
     }
 }
