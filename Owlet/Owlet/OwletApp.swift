@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var permissionModal: PermissionModalWindowController?
     private var hotkeyTap: HotkeyEventTap?
+    private var statusBar: StatusBarController?
     private var permissionPollTimer: Timer?
     private var lastKnownPermissionStatus: PermissionStatus = .allGranted
 
@@ -53,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Register login item (no-op if already registered).
         LoginItemManager.registerIfNeeded()
 
+        // Menu bar status item so the user can see Owlet is running.
+        self.statusBar = StatusBarController()
+
         // Poll for permission revocation every 60 s.
         startPermissionPolling()
     }
@@ -69,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let current = PermissionChecker.check()
+            // Keep the status-bar label fresh whether anything changed or not.
+            self.statusBar?.refresh()
             if current != self.lastKnownPermissionStatus {
                 self.lastKnownPermissionStatus = current
                 if case .missing(let missing) = current {
