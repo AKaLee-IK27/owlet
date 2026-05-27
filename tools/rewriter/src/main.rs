@@ -1,3 +1,5 @@
+use std::io::{self, Read, Write};
+use std::process::ExitCode;
 use std::time::Duration;
 
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
@@ -168,9 +170,41 @@ fn call_ollama(prompt: &str) -> Result<String, RewriteError> {
     }
 }
 
-fn main() {
-    eprintln!("owlet-rewriter: stub, not yet implemented");
-    std::process::exit(1);
+fn run() -> Result<Option<String>, RewriteError> {
+    let mut input = String::new();
+    io::stdin()
+        .read_to_string(&mut input)
+        .map_err(|e| RewriteError::Parse(format!("stdin: {e}")))?;
+    if input.trim().is_empty() {
+        return Ok(None);
+    }
+    let raw = call_ollama(&input)?;
+    let cleaned = clean_output(&raw);
+    if cleaned.trim().is_empty() {
+        return Err(RewriteError::Empty);
+    }
+    Ok(Some(cleaned))
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(Some(s)) => {
+            // Use write! on stdout (not println!) so we don't append a newline
+            // the Python script also didn't add.
+            let stdout = io::stdout();
+            let mut handle = stdout.lock();
+            if let Err(e) = handle.write_all(s.as_bytes()) {
+                eprintln!("ERROR: stdout write failed: {e}");
+                return ExitCode::FAILURE;
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(None) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{}", err.stderr_message());
+            ExitCode::FAILURE
+        }
+    }
 }
 
 #[cfg(test)]
