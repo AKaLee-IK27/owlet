@@ -111,3 +111,9 @@ final class OllamaClient {
         }
     }
 }
+
+protocol Rewriting: Sendable {
+    func rewrite(_ input: String) async throws -> String
+}
+
+extension OllamaClient: Rewriting {}

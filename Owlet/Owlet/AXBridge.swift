@@ -153,3 +153,17 @@ enum AXBridge {
         CFEqual(a, b)
     }
 }
+
+/// Protocol exposed for testing. Production uses AXBridge's static functions
+/// behind a small adapter.
+protocol AXBridging {
+    func captureSelection() -> SelectionSnapshot?
+    func replaceSelection(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult
+}
+
+struct AXBridgeAdapter: AXBridging {
+    func captureSelection() -> SelectionSnapshot? { AXBridge.captureSelection() }
+    func replaceSelection(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
+        AXBridge.replaceSelection(text, in: element)
+    }
+}
