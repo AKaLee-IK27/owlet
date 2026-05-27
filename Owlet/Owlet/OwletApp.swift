@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import os.log
 
 @main
 struct OwletApp: App {
@@ -11,9 +12,90 @@ struct OwletApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "app")
+
+    private var permissionModal: PermissionModalWindowController?
+    private var hotkeyTap: HotkeyEventTap?
+    private var permissionPollTimer: Timer?
+    private var lastKnownPermissionStatus: PermissionStatus = .allGranted
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Placeholder — Task 8 wires the full launch tree.
-        // Do not terminate here: test runner uses Owlet.app as TEST_HOST and
-        // expects it to stay alive long enough for XCTest to attach.
+        let status = PermissionChecker.check()
+        lastKnownPermissionStatus = status
+
+        switch status {
+        case .allGranted:
+            startNormalLaunch()
+        case .missing(let missing):
+            showPermissionModal(missing: missing)
+        }
+    }
+
+    private func startNormalLaunch() {
+        // Wire the event tap.
+        let tap = HotkeyEventTap { [weak self] in
+            Task { @MainActor in
+                guard self != nil else { return }
+                let flow = RewriterFlow()
+                await flow.start()
+            }
+        }
+        switch tap.start() {
+        case .success:
+            self.hotkeyTap = tap
+            Self.logger.info("Hotkey tap active")
+        case .failure:
+            // Should be rare since PermissionChecker said all granted; defensive
+            showPermissionModal(missing: [.inputMonitoring])
+            return
+        }
+
+        // Register login item (no-op if already registered).
+        LoginItemManager.registerIfNeeded()
+
+        // Poll for permission revocation every 60 s.
+        startPermissionPolling()
+    }
+
+    private func showPermissionModal(missing: Set<Permission>) {
+        let controller = PermissionModalWindowController()
+        controller.show(missing: missing) {
+            NSApp.terminate(nil)
+        }
+        self.permissionModal = controller
+    }
+
+    private func startPermissionPolling() {
+        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let current = PermissionChecker.check()
+            if current != self.lastKnownPermissionStatus {
+                self.lastKnownPermissionStatus = current
+                if case .missing(let missing) = current {
+                    self.notifyPermissionRevoked(missing: missing)
+                }
+            }
+        }
+    }
+
+    private func notifyPermissionRevoked(missing: Set<Permission>) {
+        let names = missing.map { $0.rawValue }.sorted().joined(separator: ", ")
+        let alert = NSAlert()
+        alert.messageText = "Owlet stopped working"
+        alert.informativeText = "A required permission was revoked: \(names). Re-grant in System Settings, then relaunch Owlet."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Quit Owlet")
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            if missing.contains(.accessibility) {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+            }
+            if missing.contains(.inputMonitoring) {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
+            }
+        }
+        NSApp.terminate(nil)
     }
 }
