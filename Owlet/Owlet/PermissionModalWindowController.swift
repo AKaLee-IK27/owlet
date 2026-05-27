@@ -3,11 +3,12 @@ import SwiftUI
 
 /// Hosts PermissionModal in a regular (activating) window so the user can
 /// click the deep-link buttons. Owlet stays alive until the user clicks Quit.
+@MainActor
 final class PermissionModalWindowController {
 
     private var window: NSWindow?
 
-    func show(missing: Set<Permission>, onQuit: @escaping () -> Void) {
+    func show(missing: Set<Permission>, onQuit: @escaping @MainActor () -> Void) {
         let modal = PermissionModal(missing: missing, onQuit: onQuit)
         let hosting = NSHostingController(rootView: modal)
         let w = NSWindow(contentViewController: hosting)
