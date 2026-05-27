@@ -8,7 +8,6 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$HERE/tools/rewriter/.venv"
 MODEL="qwen3:8b"
 ZSHRC="$HOME/.zshrc"
 KEEP_ALIVE_LINE='export OLLAMA_KEEP_ALIVE=24h'
@@ -21,28 +20,31 @@ if ! command -v ollama >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "ERROR: 'python3' not found in PATH." >&2
+# ---------- Rust toolchain ----------
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "ERROR: 'cargo' not found in PATH." >&2
+  echo "       Install the Rust toolchain via:" >&2
+  echo "         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" >&2
+  echo "       Then re-run install.sh." >&2
   exit 1
 fi
 
 echo "==> Pulling model: $MODEL"
 ollama pull "$MODEL"
 
-# ---------- Python venv ----------
-mkdir -p "$HERE/tools/rewriter"
-if [ ! -d "$VENV" ]; then
-  echo "==> Creating venv at $VENV"
-  python3 -m venv "$VENV"
-else
-  echo "==> Reusing existing venv at $VENV"
+# ---------- Build owlet-rewriter ----------
+echo "==> Building owlet-rewriter (Rust, release)"
+BUILD_LOG="$(mktemp -t owlet-rewriter-build.XXXXXX)"
+if ! (cd "$HERE/tools/rewriter" && cargo build --release --quiet) > "$BUILD_LOG" 2>&1; then
+  echo "ERROR: cargo build failed. Last 60 lines of $BUILD_LOG:" >&2
+  tail -60 "$BUILD_LOG" >&2
+  exit 1
 fi
+rm -f "$BUILD_LOG"
 
-echo "==> Installing Python dependencies"
-"$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet -r "$HERE/tools/rewriter/requirements.txt"
-
-chmod +x "$HERE/tools/rewriter/rewrite_prompt.py"
+cp "$HERE/tools/rewriter/target/release/owlet-rewriter" \
+   "$HERE/tools/rewriter/owlet-rewriter"
+chmod +x "$HERE/tools/rewriter/owlet-rewriter"
 
 # ---------- Shell env: OLLAMA_KEEP_ALIVE ----------
 if [ -f "$ZSHRC" ] && grep -Fq "OLLAMA_KEEP_ALIVE" "$ZSHRC"; then
@@ -245,7 +247,7 @@ cp -R "$BUILT_APP" "$OWLET_INSTALL_DIR/"
 # be verified" on first launch. Ad-hoc self-sign means we can't notarize.
 xattr -dr com.apple.quarantine "$OWLET_INSTALL_DIR/$OWLET_APP_NAME" 2>/dev/null || true
 
-# Tell Owlet where to find the rewriter venv + script.
+# Tell Owlet where to find the rewriter binary.
 defaults write co.greenpassport.owlet rewriterDirectory "$HERE/tools/rewriter"
 
 # Re-register Launch Services so any stale URL-scheme handler bindings clear.

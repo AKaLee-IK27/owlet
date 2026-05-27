@@ -17,7 +17,7 @@ import AppKit
 ///
 /// **Mode chips.** Visible in `.result` only. Currently visual-only — tapping
 /// switches the active chip but doesn't re-trigger Ollama because
-/// `rewrite_prompt.py` doesn't yet accept a mode parameter. Wiring modes to
+/// `owlet-rewriter` doesn't yet accept a mode parameter. Wiring modes to
 /// distinct SYSTEM_PROMPTs is a follow-up.
 ///
 /// **Improvements line.** Hidden for now (`showImprovements = false`) because
@@ -164,8 +164,8 @@ struct ImprovePromptFloater: View {
                 ModeChip(mode: m, active: m == activeMode) {
                     activeMode = m
                     // TODO(v0.5): re-trigger rewrite with this mode's
-                    // SYSTEM_PROMPT. rewrite_prompt.py needs --mode <name>
-                    // first, and OllamaClient + Rewriting need a `mode` arg.
+                    // SYSTEM_PROMPT. owlet-rewriter needs a --mode <name>
+                    // flag first, and OllamaClient + Rewriting need a `mode` arg.
                 }
             }
             Spacer(minLength: 0)

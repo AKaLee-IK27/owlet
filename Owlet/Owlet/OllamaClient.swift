@@ -1,6 +1,6 @@
 import Foundation
 
-/// Spawns the Python rewriter CLI and returns its stdout.
+/// Spawns the owlet-rewriter binary and returns its stdout.
 /// On timeout or task cancellation, calls `process.terminate()` so the
 /// child is actually killed (Swift cancellation alone does not stop a Process).
 final class OllamaClient {
@@ -18,11 +18,9 @@ final class OllamaClient {
     private let timeoutSeconds: TimeInterval
 
     /// - Parameters:
-    ///   - executablePath: absolute path to the executable to spawn (Python
-    ///     interpreter, OR the fixture script in tests).
-    ///   - arguments: command-line arguments. For production, this is the
-    ///     rewriter script path so `python3 rewrite_prompt.py` runs in script
-    ///     mode (not interactive — which would parse stdin as Python code).
+    ///   - executablePath: absolute path to the executable to spawn (the
+    ///     owlet-rewriter Rust binary in production, OR the fixture script in tests).
+    ///   - arguments: command-line arguments passed to the executable.
     ///   - environment: extra env vars merged into the child's environment.
     ///   - timeoutSeconds: max wall-clock seconds before the child is terminated.
     init(executablePath: String,
