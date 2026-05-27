@@ -58,13 +58,20 @@ enum AXBridge {
             ))
         }
 
-        // Fallback: clipboard, where Hammerspoon already put the captured selection
-        // via Cmd+C in the still-focused source app (before firing owlet:// URL).
-        if let text = NSPasteboard.general.string(forType: .string), !text.isEmpty {
+        // Fallback: synthesize Cmd+C in Swift (handles Electron, Chrome, Terminal).
+        if let result = swiftCmdCCapture() {
+            // Schedule the saved-clipboard restore after a delay so the popup
+            // has time to read and the user has time to act on it.
+            if let saved = result.savedClipboard {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(saved, forType: .string)
+                }
+            }
             return .captured(SelectionSnapshot(
-                text: text,
+                text: result.text,
                 sourceAppBundleID: focus?.appBundleID ?? "",
-                focusedElement: focus?.focusedElement,   // may be nil — Replace handles it
+                focusedElement: focus?.focusedElement,
                 captureMethod: .clipboardFallback
             ))
         }
@@ -163,5 +170,55 @@ struct AXBridgeAdapter: AXBridging {
     func capture() -> CaptureOutcome { AXBridge.capture() }
     func replaceSelection(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
         AXBridge.replaceSelection(text, in: element)
+    }
+}
+
+extension AXBridge {
+
+    /// Capture the source app's current selection by synthesizing Cmd+C.
+    /// Mirrors the Hammerspoon Lua capture: wait for the user to release
+    /// fn+ctrl (otherwise the chord taints our Cmd+C with extra modifiers
+    /// and the source app's Copy handler doesn't fire), post Cmd+C with
+    /// explicit cmd-only flags, then poll the pasteboard for a changeCount
+    /// increment up to 1 s. Returns nil if no new text appeared.
+    /// Caller is responsible for restoring the original clipboard.
+    static func swiftCmdCCapture() -> (text: String, savedClipboard: String?)? {
+        let pb = NSPasteboard.general
+        let saved = pb.string(forType: .string)
+        let beforeCount = pb.changeCount
+
+        // Wait for fn+ctrl release (up to 300 ms). Check current global
+        // modifier state via NSEvent's class API.
+        let releaseDeadline = Date().addingTimeInterval(0.3)
+        while Date() < releaseDeadline {
+            let m = NSEvent.modifierFlags
+            let fnHeld = m.contains(.function)
+            let ctrlHeld = m.contains(.control)
+            if !fnHeld && !ctrlHeld { break }
+            usleep(10_000)
+        }
+
+        // Post Cmd+C with EXPLICIT cmd-only flags (no leftover hardware state).
+        guard let src = CGEventSource(stateID: .hidSystemState),
+              let down = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: true),
+              let up   = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: false)
+        else { return nil }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+
+        // Poll for clipboard change (up to 1 s).
+        let deadline = Date().addingTimeInterval(1.0)
+        while pb.changeCount == beforeCount && Date() < deadline {
+            usleep(20_000)
+        }
+
+        let captured = pb.string(forType: .string)
+        if pb.changeCount == beforeCount { return nil }              // no Cmd+C response
+        guard let text = captured, !text.isEmpty else { return nil } // changed but empty
+        if text == saved { return nil }                              // changed but identical
+
+        return (text: text, savedClipboard: saved)
     }
 }
