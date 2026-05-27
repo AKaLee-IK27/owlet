@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
 const MODEL: &str = "qwen3:8b";
 const TIMEOUT_SECS: u64 = 30;
@@ -126,6 +128,39 @@ fn build_payload(prompt: &str) -> serde_json::Value {
         "think": false,
         "options": { "temperature": 0.2 }
     })
+}
+
+fn call_ollama(prompt: &str) -> Result<String, RewriteError> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(TIMEOUT_SECS))
+        .build();
+    let payload = build_payload(prompt);
+    match agent.post(OLLAMA_URL).send_json(payload) {
+        Ok(response) => {
+            let body = response
+                .into_string()
+                .map_err(|e| RewriteError::Parse(e.to_string()))?;
+            parse_response(&body)
+        }
+        Err(ureq::Error::Status(code, response)) => {
+            let body = response.into_string().unwrap_or_default();
+            let excerpt: String = body.chars().take(200).collect();
+            Err(RewriteError::Http(format!("HTTP {code}: {excerpt}")))
+        }
+        Err(ureq::Error::Transport(transport)) => {
+            let kind = transport.kind();
+            let msg = transport.message().unwrap_or("").to_lowercase();
+            if msg.contains("timed out") || msg.contains("timeout") {
+                Err(RewriteError::Timeout)
+            } else if matches!(kind, ureq::ErrorKind::ConnectionFailed)
+                || msg.contains("refused")
+            {
+                Err(RewriteError::ConnectionRefused)
+            } else {
+                Err(RewriteError::Http(format!("{kind:?}: {msg}")))
+            }
+        }
+    }
 }
 
 fn main() {
