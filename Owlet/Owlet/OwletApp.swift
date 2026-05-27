@@ -22,24 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastKnownPermissionStatus: PermissionStatus = .allGranted
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog("Owlet[trace]: applicationDidFinishLaunching START")
-
         // ALWAYS create the status bar item first. Provides a visible signal
         // that Owlet is running and an escape hatch (Quit) regardless of
         // what permission state we end up in.
         self.statusBar = StatusBarController()
-        NSLog("Owlet[trace]: StatusBarController created")
 
         let status = PermissionChecker.check()
         lastKnownPermissionStatus = status
-        NSLog("Owlet[trace]: permission status = %@", String(describing: status))
+        Self.logger.info("Launch: permission status = \(String(describing: status), privacy: .public)")
 
         switch status {
         case .allGranted:
-            NSLog("Owlet[trace]: all permissions granted, normal launch")
             startNormalLaunch()
         case .missing(let missing):
-            NSLog("Owlet[trace]: missing permissions: %@", String(describing: missing))
             showPermissionModal(missing: missing)
         }
     }
