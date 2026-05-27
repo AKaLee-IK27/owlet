@@ -16,6 +16,7 @@ struct ModifierFlags: Equatable {
 enum ChordMatcher {
 
     /// Match exactly fn+ctrl+r — no other modifier may be present.
+    /// This is the Owlet hotkey for the "Improve prompt" rewriter feature.
     static func isOwletRewrite(key: String, flags: ModifierFlags) -> Bool {
         return key == "r"
             && flags.fn && flags.ctrl

@@ -107,14 +107,73 @@ final class RewriterFlow {
 
     private func setState(_ state: PopupState) {
         lastObservedState = state
+        // v0.4: branded ImprovePromptFloater replaces the v0.1–v0.3
+        // system-native PopupView. Same state machine, new chrome.
         popup.show(
-            PopupView(state: state,
-                      onReplace: { [weak self] in self?.handleReplace() },
-                      onCopy:    { [weak self] in self?.handleCopy() },
-                      onCancel:  { [weak self] in self?.handleCancel() },
-                      onRetry:   { Task { [weak self] in await self?.start() } }),
-            anchorRect: nil // Phase 8 manual smoke: refine anchor from snap.focusedElement
+            ImprovePromptFloater(state: state,
+                                 onReplace: { [weak self] in self?.handleReplace() },
+                                 onCopy:    { [weak self] in self?.handleCopy() },
+                                 onCancel:  { [weak self] in self?.handleCancel() },
+                                 onRetry:   { Task { [weak self] in await self?.start() } }),
+            anchorRect: Self.anchorRect(for: _currentFocusedElement),
+            width: OwletDesign.Floater.width
         )
+    }
+
+    /// Compute the popup's screen-coord anchor rect.
+    ///
+    /// **AX path** (TextEdit / Pages / Notes / any AX-cooperative app):
+    /// read the focused element's frame from the Accessibility API. AX gives
+    /// us window-coords with origin at the top-left; we flip Y into NSScreen's
+    /// bottom-left coordinate space so PopupWindowController.position(near:)
+    /// can lay the popup below it.
+    ///
+    /// **Clipboard-fallback path** (Electron / Chrome / Terminal — no AX
+    /// element): anchor on the mouse cursor instead. Not ideal (the rewrite
+    /// happens in a text field that isn't necessarily where the cursor is),
+    /// but better than screen-center and good enough until per-app coord
+    /// hacks land.
+    ///
+    /// Returns nil when even the mouse fallback can't be resolved, which
+    /// causes PopupWindowController to center the panel — the v0.3 behavior.
+    private static func anchorRect(for element: AXUIElement?) -> NSRect? {
+        if let element = element,
+           let frame = screenFrame(of: element) {
+            return frame
+        }
+        // No usable AX rect — fall back to the mouse cursor location. NSEvent
+        // already gives bottom-left/Y-up screen coords, so no flip needed.
+        let mouse = NSEvent.mouseLocation
+        guard mouse != .zero else { return nil }
+        return NSRect(x: mouse.x, y: mouse.y, width: 0, height: 0)
+    }
+
+    /// Read an AXUIElement's frame and convert to NSScreen coordinates.
+    /// Returns nil if either AX attribute is missing or if the coordinate
+    /// flip fails (no primary screen).
+    private static func screenFrame(of element: AXUIElement) -> NSRect? {
+        var posValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let posValue = posValue, let sizeValue = sizeValue,
+              CFGetTypeID(posValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID()
+        else { return nil }
+
+        var pos = CGPoint.zero
+        var size = CGSize.zero
+        let gotPos = AXValueGetValue(posValue as! AXValue, .cgPoint, &pos)
+        let gotSize = AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        guard gotPos, gotSize, size.width > 0, size.height > 0 else { return nil }
+
+        // AX uses top-left origin in the global coordinate space (origin at
+        // the primary display's top-left). NSScreen uses bottom-left origin.
+        // Flip via the primary screen's height — `NSScreen.screens.first` is
+        // the primary display on macOS.
+        guard let primary = NSScreen.screens.first else { return nil }
+        let nsY = primary.frame.height - pos.y - size.height
+        return NSRect(x: pos.x, y: nsY, width: size.width, height: size.height)
     }
 
     private func handleReplace() {

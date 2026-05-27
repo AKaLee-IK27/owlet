@@ -175,6 +175,25 @@ if ! command -v xcodegen >/dev/null 2>&1; then
   fi
 fi
 
+# ---------- Brand fonts ----------
+# The v0.4 branded popup uses Fraunces (display italic) + Be Vietnam Pro (UI).
+# Both ship as Homebrew casks. We install them system-wide so SwiftUI's
+# Font.custom can resolve them by PostScript name; if missing, Font.custom
+# silently falls back to NewYork / SF Pro and the popup still works, just
+# off-brand.
+# Skip silently if Homebrew is absent — same fallback applies.
+if command -v brew >/dev/null 2>&1; then
+  for cask in font-fraunces font-be-vietnam-pro; do
+    if brew list --cask "$cask" >/dev/null 2>&1; then
+      echo "==> Reusing existing brew cask '$cask'"
+    else
+      echo "==> Installing brew cask '$cask' (Owlet branded UI font)"
+      brew install --cask "$cask" >/dev/null 2>&1 || \
+        echo "    WARNING: $cask failed to install; popup will fall back to system fonts."
+    fi
+  done
+fi
+
 OWLET_XCODE_DIR="$HERE/Owlet"
 OWLET_APP_NAME="Owlet.app"
 OWLET_INSTALL_DIR="$HOME/Applications"

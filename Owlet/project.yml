@@ -27,8 +27,8 @@ targets:
       properties:
         CFBundleName: Owlet
         CFBundleDisplayName: Owlet
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.4.0-preview"
+        CFBundleVersion: "4"
         LSUIElement: YES
         NSAccessibilityUsageDescription: "Owlet needs Accessibility to read the text you select and to replace it with the rewritten version when you click Replace."
         NSInputMonitoringUsageDescription: "Owlet needs Input Monitoring to detect your fn+Ctrl+R hotkey system-wide."

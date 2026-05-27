@@ -40,17 +40,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startNormalLaunch() {
-        // Wire the event tap. Closure is @Sendable; don't capture self.
-        let tap = HotkeyEventTap {
+        // Rewriter chord — fn+Ctrl+R. Closure is @Sendable; don't capture self.
+        // The popup itself is now the v0.4 branded ImprovePromptFloater (the
+        // "Improve prompt" design); both fn+Ctrl+R and the feature name refer
+        // to the same thing — there is no separate fn+Ctrl+I.
+        let rewriterTap = HotkeyEventTap(chord: ChordMatcher.isOwletRewrite) {
             Task { @MainActor in
                 let flow = RewriterFlow()
                 await flow.start()
             }
         }
-        switch tap.start() {
+        switch rewriterTap.start() {
         case .success:
-            self.hotkeyTap = tap
-            Self.logger.info("Hotkey tap active")
+            self.hotkeyTap = rewriterTap
+            Self.logger.info("Rewriter hotkey tap active")
         case .failure:
             // Should be rare since PermissionChecker said all granted; defensive
             showPermissionModal(missing: [.inputMonitoring])

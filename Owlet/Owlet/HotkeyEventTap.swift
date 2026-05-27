@@ -15,10 +15,19 @@ final class HotkeyEventTap {
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private let chord: @Sendable (String, ModifierFlags) -> Bool
     private let onHotkey: @Sendable () -> Void
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
 
-    init(onHotkey: @escaping @Sendable () -> Void) {
+    /// - Parameters:
+    ///   - chord: Pure predicate the tap consults on every keyDown to decide
+    ///     whether to intercept. Pass `ChordMatcher.isOwletRewrite` or
+    ///     `ChordMatcher.isOwletImprove` — multiple instances of the tap can
+    ///     coexist, one per chord.
+    ///   - onHotkey: Dispatched to a background queue when `chord` returns true.
+    init(chord: @escaping @Sendable (String, ModifierFlags) -> Bool,
+         onHotkey: @escaping @Sendable () -> Void) {
+        self.chord = chord
         self.onHotkey = onHotkey
     }
 
@@ -91,7 +100,7 @@ final class HotkeyEventTap {
             shift: event.flags.contains(.maskShift)
         )
 
-        guard ChordMatcher.isOwletRewrite(key: keyName, flags: flags) else {
+        guard chord(keyName, flags) else {
             return Unmanaged.passUnretained(event)  // pass through
         }
 
@@ -102,12 +111,13 @@ final class HotkeyEventTap {
         return nil
     }
 
-    /// Maps CGKeyCode to a single-character string. v0.2 only needs 'r'; other
-    /// keys return "" which never matches the chord. If the chord becomes
-    /// configurable in v0.3 this needs UCKeyTranslate for full layout support.
+    /// Maps CGKeyCode to a single-character string for chord matching.
+    /// Currently only 'r' is needed. If the chord becomes user-configurable
+    /// later this needs UCKeyTranslate for full layout support — these
+    /// literals assume US/QWERTY-style layouts.
     private func keyCodeToString(_ keyCode: Int) -> String {
         switch keyCode {
-        case 15: return "r"          // US/most layouts
+        case 15: return "r"
         default: return ""
         }
     }

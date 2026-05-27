@@ -8,10 +8,22 @@ final class PopupWindowController {
 
     private var panel: NSPanel?
 
-    @MainActor func show<Content: View>(_ content: Content, anchorRect: NSRect?) {
+    /// Show the given SwiftUI content in the floating panel.
+    /// - Parameters:
+    ///   - content: SwiftUI view to host. Should NOT apply its own frame
+    ///     width — the panel sizes itself to `width`.
+    ///   - anchorRect: optional screen rect to anchor below (or above if
+    ///     below is off-screen). When nil the panel is centered.
+    ///   - width: override the panel/content width. Defaults to
+    ///     `Theme.Card.width` for the legacy rewriter popup. The v0.4 branded
+    ///     floater passes `OwletDesign.Floater.width` (420pt).
+    @MainActor func show<Content: View>(_ content: Content,
+                                        anchorRect: NSRect?,
+                                        width: CGFloat? = nil) {
+        let w = width ?? Theme.Card.width
         if panel == nil {
             let p = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: Theme.Card.width, height: Theme.Card.minHeight),
+                contentRect: NSRect(x: 0, y: 0, width: w, height: Theme.Card.minHeight),
                 styleMask: [.nonactivatingPanel, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -31,10 +43,12 @@ final class PopupWindowController {
 
         let hosting = NSHostingView(rootView:
             content
-                .frame(width: Theme.Card.width)
+                .frame(width: w)
                 .frame(minHeight: Theme.Card.minHeight, maxHeight: Theme.Card.maxHeight)
         )
         panel?.contentView = hosting
+        // Resize panel if width changed since last show.
+        panel?.setContentSize(NSSize(width: w, height: hosting.fittingSize.height))
 
         if let anchor = anchorRect {
             position(near: anchor)
