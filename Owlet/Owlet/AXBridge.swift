@@ -60,22 +60,29 @@ enum AXBridge {
         }
 
         // Fallback: synthesize Cmd+C in Swift (handles Electron, Chrome, Terminal).
-        if let result = swiftCmdCCapture() {
-            // Schedule the saved-clipboard restore after a delay so the popup
-            // has time to read and the user has time to act on it.
-            if let saved = result.savedClipboard {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(saved, forType: .string)
-                }
-            }
+        // ClipboardGuard captures the user's original clipboard BEFORE we
+        // overwrite it via Cmd+C, and coalesces overlapping restore timers so
+        // rapid re-triggers don't lose the original.
+        ClipboardGuard.shared.snapshotBeforeOverwrite()
+        if let text = swiftCmdCCapture() {
+            // 5 s gives the popup plenty of time to consume the clipboard
+            // before we restore the original underneath it.
+            ClipboardGuard.shared.scheduleRestore(after: 5.0)
             return .captured(SelectionSnapshot(
-                text: result.text,
+                text: text,
                 sourceAppBundleID: focus?.appBundleID ?? "",
                 focusedElement: focus?.focusedElement,
                 captureMethod: .clipboardFallback
             ))
         }
+        // Capture failed but Cmd+C may have written something we can't decode
+        // as text — image, file, custom UTI — *or* it may not have written at
+        // all. We can't tell from this far up. Always scheduleRestore on the
+        // failure path: if the clipboard was overwritten, we restore the user's
+        // original over the junk; if it wasn't, the restore writes the cached
+        // original back to itself (benign no-op, just a spurious changeCount
+        // bump). Either way the user's true original is preserved.
+        ClipboardGuard.shared.scheduleRestore(after: 0.5)
 
         return focus == nil ? .noFocus : .empty
     }
@@ -93,18 +100,24 @@ enum AXBridge {
         let setErr = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, cf)
         if setErr == .success { return .okAX }
 
-        // 2) Clipboard + synthetic Cmd+V, with save/restore.
+        // 2) Clipboard + synthetic Cmd+V, with save/restore via ClipboardGuard.
+        // The guard returns the same original across capture + replace cycles
+        // so the user's pre-Owlet clipboard survives even though we overwrite
+        // twice (once for capture, once for paste).
+        ClipboardGuard.shared.snapshotBeforeOverwrite()
         let pb = NSPasteboard.general
-        let originalContents = pb.string(forType: .string)
         pb.clearContents()
         pb.setString(text, forType: .string)
         let pasted = postCmdV()
-        // Restore old clipboard after a brief delay so the paste lands first.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let original = originalContents {
-                pb.clearContents()
-                pb.setString(original, forType: .string)
-            }
+        if pasted {
+            // 0.5 s lets the synthetic Cmd+V land in the target app before
+            // we swap the clipboard back to the user's original.
+            ClipboardGuard.shared.scheduleRestore(after: 0.5)
+        } else {
+            // Paste failed — leave clipboard as it is (with rewrite text on it
+            // so the user can manually Cmd+V) and clear the pending restore so
+            // we don't later wipe whatever they end up with.
+            ClipboardGuard.shared.cancelPendingRestore()
         }
         return pasted ? .okPaste : .failed("AX write + Cmd+V both failed")
     }
@@ -182,7 +195,9 @@ extension AXBridge {
     /// explicit cmd-only flags from a privateState source so the synthetic
     /// event isn't merged with held hardware modifiers.
     /// Returns nil if no new text appeared on the clipboard.
-    static func swiftCmdCCapture() -> (text: String, savedClipboard: String?)? {
+    /// Original-clipboard restore is the caller's responsibility (via
+    /// ClipboardGuard) — this function only handles the capture itself.
+    static func swiftCmdCCapture() -> String? {
         let log = OSLog(subsystem: "co.greenpassport.owlet", category: "capture")
         let pb = NSPasteboard.general
         let saved = pb.string(forType: .string)
@@ -293,7 +308,7 @@ extension AXBridge {
         return false
     }
 
-    private static func readResult(beforeCount: Int, saved: String?, log: OSLog) -> (text: String, savedClipboard: String?)? {
+    private static func readResult(beforeCount: Int, saved: String?, log: OSLog) -> String? {
         let pb = NSPasteboard.general
         let afterCount = pb.changeCount
         let captured = pb.string(forType: .string)
@@ -311,7 +326,6 @@ extension AXBridge {
             os_log("capture: captured matches saved (no new selection)", log: log, type: .error)
             return nil
         }
-        return (text: text, savedClipboard: saved)
-
+        return text
     }
 }
