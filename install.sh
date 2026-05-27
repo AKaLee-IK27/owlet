@@ -146,7 +146,10 @@ HS_BLOCK_TEMPLATE="$(cat <<'LUA'
 hs.allowAppleScript(true)  -- lets `./install.sh` call hs.reload() via osascript
 do
     local function trigger()
-        hs.execute("open owlet://rewrite")
+        -- -g: open in background, do NOT bring Owlet to foreground.
+        -- Critical so the source app keeps focus and Owlet's AX
+        -- captureSelection() reads from the right element.
+        hs.execute("open -g owlet://rewrite")
     end
 
     if _G.__owletTap then
