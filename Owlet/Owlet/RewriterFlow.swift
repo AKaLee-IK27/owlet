@@ -21,17 +21,17 @@ final class RewriterFlow {
         self.rewriter = rewriter ?? Self.makeDefaultRewriter()
     }
 
-    /// Build the production OllamaClient using the rewriter directory written
-    /// to UserDefaults by install.sh (`defaults write co.greenpassport.owlet
-    /// rewriterDirectory ...`). Falls back to the legacy ~/repos/owlet path
-    /// only when no default is set — useful for first-launch-without-install
-    /// debugging, never expected in production.
+    /// Build the production OllamaClient spawning the `owlet-rewriter` Rust binary
+    /// from the rewriter directory written to UserDefaults by install.sh
+    /// (`defaults write co.greenpassport.owlet rewriterDirectory ...`).
+    /// Falls back to the legacy ~/repos/owlet path only when no default is set —
+    /// useful for first-launch-without-install debugging, never expected in production.
     private static func makeDefaultRewriter() -> Rewriting {
         let fallback = NSString(string: "~/repos/owlet/tools/rewriter").expandingTildeInPath
         let dir = UserDefaults.standard.string(forKey: "rewriterDirectory") ?? fallback
         return OllamaClient(
-            executablePath: "\(dir)/.venv/bin/python3",
-            arguments: ["\(dir)/rewrite_prompt.py"],
+            executablePath: "\(dir)/owlet-rewriter",
+            arguments: [],
             timeoutSeconds: 30
         )
     }
