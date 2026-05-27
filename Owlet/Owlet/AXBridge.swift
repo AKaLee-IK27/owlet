@@ -94,6 +94,9 @@ enum AXBridge {
         var focused: CFTypeRef?
         let err = AXUIElementCopyAttributeValue(appRef, kAXFocusedUIElementAttribute as CFString, &focused)
         guard err == .success, let element = focused else { return nil }
+        // Defensive: misbehaved apps can return non-AXUIElement CFTypeRefs.
+        let typeID = CFGetTypeID(element)
+        guard typeID == AXUIElementGetTypeID() else { return nil }
         return FocusSnapshot(appBundleID: bundleID, focusedElement: element as! AXUIElement)
     }
 
