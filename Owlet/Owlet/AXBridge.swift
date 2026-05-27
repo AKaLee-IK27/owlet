@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import os.log
 
 struct SelectionSnapshot: Equatable {
     enum CaptureMethod { case ax, clipboardFallback }
