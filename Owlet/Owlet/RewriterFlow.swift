@@ -3,8 +3,7 @@ import AppKit
 import ApplicationServices
 
 @MainActor
-final class RewriterFlow: CaptureFlow {
-    let tag = "rewriter"
+final class RewriterFlow {
     private let ax: AXBridging
     private let rewriter: Rewriting
     private let popup: PopupWindowController
