@@ -11,6 +11,7 @@ struct OwletApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "app")
 
@@ -32,10 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startNormalLaunch() {
-        // Wire the event tap.
-        let tap = HotkeyEventTap { [weak self] in
+        // Wire the event tap. Closure is @Sendable; don't capture self.
+        let tap = HotkeyEventTap {
             Task { @MainActor in
-                guard self != nil else { return }
                 let flow = RewriterFlow()
                 await flow.start()
             }
