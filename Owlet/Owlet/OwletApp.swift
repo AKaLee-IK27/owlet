@@ -7,7 +7,11 @@ struct OwletApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     var body: some Scene {
-        Settings { SettingsView() }
+        // Empty Settings scene — Owlet is LSUIElement (.accessory), and SwiftUI's
+        // Settings scene window won't reliably front from a menu-bar app.
+        // The real Settings UI is presented via AppDelegate.showSettings() using
+        // a hand-rolled NSWindow + NSHostingController.
+        Settings { EmptyView() }
     }
 }
 
@@ -21,9 +25,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var permissionPollTimer: Timer?
     private var lastKnownPermissionStatus: PermissionStatus = .allGranted
     private var prefsObserver: NSObjectProtocol?
+    private var settingsWindow: NSWindow?
+    private var settingsCloseObserver: NSObjectProtocol?
+
+    /// Present Owlet's Settings window. Promotes activation policy to `.regular`
+    /// so the window can take focus from a menu-bar app, and reverts to `.accessory`
+    /// when the window closes (so the Dock icon doesn't linger).
+    func showSettings() {
+        if settingsWindow == nil {
+            let hosting = NSHostingController(rootView: SettingsView())
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Owlet Settings"
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(NSSize(width: 460, height: 360))
+            window.center()
+            window.isReleasedWhenClosed = false
+            settingsWindow = window
+            settingsCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in NSApp.setActivationPolicy(.accessory) }
+            }
+        }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        self.statusBar = StatusBarController()
+        // Inject showSettings as a closure — NSApp.delegate goes through SwiftUI's
+        // NSApplicationDelegateAdaptor wrapper, so `as? AppDelegate` returns nil
+        // and we can't reach this instance through the runtime delegate accessor.
+        self.statusBar = StatusBarController(onSettings: { [weak self] in
+            self?.showSettings()
+        })
 
         prefsObserver = NotificationCenter.default.addObserver(
             forName: Preferences.changedNotification,

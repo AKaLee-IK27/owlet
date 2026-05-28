@@ -8,9 +8,12 @@ final class StatusBarController {
 
     private let statusItem: NSStatusItem
     private let probePermissions: () -> PermissionStatus
+    private let onSettings: (() -> Void)?
 
-    init(probePermissions: @escaping () -> PermissionStatus = { PermissionChecker.check() }) {
+    init(probePermissions: @escaping () -> PermissionStatus = { PermissionChecker.check() },
+         onSettings: (() -> Void)? = nil) {
         self.probePermissions = probePermissions
+        self.onSettings = onSettings
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         configureIcon()
         rebuildMenu()
@@ -70,12 +73,7 @@ final class StatusBarController {
     }
 
     @objc private func handleSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
+        onSettings?()
     }
 
     private func permissionsLabel(_ status: PermissionStatus) -> String {
