@@ -84,7 +84,7 @@ final class RewriterFlowTests: XCTestCase {
         rewriter.response = .success("the dog sat")
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
         await flow.start()
-        if case .result(_, let new, let segs, let canReplace) = flow.lastObservedState {
+        if case .result(_, let new, let segs, let canReplace, _) = flow.lastObservedState {
             XCTAssertEqual(new, "the dog sat")
             XCTAssertNotNil(segs)
             XCTAssertTrue(canReplace)
@@ -130,7 +130,7 @@ final class RewriterFlowTests: XCTestCase {
         rewriter.response = .success("Captured via clipboard.")
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
         await flow.start()
-        if case .result(_, _, _, let canReplace) = flow.lastObservedState {
+        if case .result(_, _, _, let canReplace, _) = flow.lastObservedState {
             XCTAssertTrue(canReplace, "canReplace stays true; handleReplace falls back to clipboard write")
         } else {
             XCTFail("expected .result, got \(String(describing: flow.lastObservedState))")

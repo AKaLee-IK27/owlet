@@ -2,8 +2,8 @@ import Foundation
 
 /// What the popup is currently showing.
 enum PopupState: Equatable {
-    case loading(sourceText: String, isLong: Bool)
-    case result(original: String, rewritten: String, segments: [DiffSegment]?, canReplace: Bool)
+    case loading(sourceText: String, isLong: Bool, captureMethod: SelectionSnapshot.CaptureMethod = .ax)
+    case result(original: String, rewritten: String, segments: [DiffSegment]?, canReplace: Bool, captureMethod: SelectionSnapshot.CaptureMethod = .ax)
     case empty(text: String)                      // rewrite ≈ original
     case error(ErrorKind)
 }

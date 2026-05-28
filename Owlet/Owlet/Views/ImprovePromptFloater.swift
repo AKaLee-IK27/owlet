@@ -40,7 +40,7 @@ struct ImprovePromptFloater: View {
 
             output.padding(.bottom, 12)
 
-            if case .result(_, _, _, _) = state {
+            if case .result(_, _, _, _, _) = state {
                 modeChips.padding(.bottom, 12)
             }
 
@@ -99,7 +99,7 @@ struct ImprovePromptFloater: View {
             }
             .frame(minHeight: 100, alignment: .top)
 
-        case .result(_, let rewritten, _, _):
+        case .result(_, let rewritten, _, _, _):
             italicOutput(rewritten)
 
         case .empty(let text):
@@ -187,7 +187,7 @@ struct ImprovePromptFloater: View {
         case .loading:
             EmptyView()
 
-        case .result(_, _, _, let canReplace):
+        case .result(_, _, _, let canReplace, _):
             HStack(spacing: 4) {
                 PrimaryButton(label: "Replace", enabled: canReplace, action: onReplace)
                 GhostButton(label: "Try again", action: onRetry)

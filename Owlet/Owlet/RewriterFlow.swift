@@ -180,7 +180,7 @@ final class RewriterFlow {
     }
 
     private func handleReplace() {
-        guard case .result(_, let rewritten, _, _) = lastObservedState else { return }
+        guard case .result(_, let rewritten, _, _, _) = lastObservedState else { return }
         // Re-validate focus and replace via AXBridge. Snapshot kept in `_currentFocusedElement`.
         if let element = _currentFocusedElement {
             let result = ax.replaceSelection(rewritten, in: element)
@@ -200,7 +200,7 @@ final class RewriterFlow {
     }
 
     private func handleCopy() {
-        guard case .result(_, let rewritten, _, _) = lastObservedState else { return }
+        guard case .result(_, let rewritten, _, _, _) = lastObservedState else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rewritten, forType: .string)
         popup.hide()

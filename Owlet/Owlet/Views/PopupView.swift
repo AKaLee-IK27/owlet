@@ -11,9 +11,9 @@ struct PopupView: View {
     var body: some View {
         Group {
             switch state {
-            case .loading(let src, let long):
+            case .loading(let src, let long, _):
                 LoadingView(sourceText: src, isLong: long)
-            case .result(let orig, let rew, let segs, let canReplace):
+            case .result(let orig, let rew, let segs, let canReplace, _):
                 ResultView(original: orig,
                            rewritten: rew,
                            segments: segs,
