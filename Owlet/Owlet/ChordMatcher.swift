@@ -2,7 +2,7 @@ import Foundation
 
 /// Modifier state at the moment a key was pressed. Captured from CGEvent flags
 /// (or hs.eventtap flags during testing) and passed into the pure chord matcher.
-struct ModifierFlags: Equatable {
+struct ModifierFlags: Equatable, Codable {
     let fn: Bool
     let ctrl: Bool
     let cmd: Bool
