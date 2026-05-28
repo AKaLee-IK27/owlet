@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var prefsObserver: NSObjectProtocol?
     private var settingsWindow: NSWindow?
     private var settingsCloseObserver: NSObjectProtocol?
+    private var optionHoldDetector: OptionHoldDetector?
+    private var floatingButtonController: FloatingButtonController?
 
     /// Present Owlet's Settings window. Promotes activation policy to `.regular`
     /// so the window can take focus from a menu-bar app, and reverts to `.accessory`
@@ -103,12 +105,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebindHotkeyTap() {
         hotkeyTap?.stop()
-        let newTap = HotkeyEventTap(chord: Preferences.shared.hotkey) {
-            Task { @MainActor in
-                let flow = RewriterFlow()
-                await flow.start()
-            }
-        }
+        let newTap = HotkeyEventTap(
+            chord: Preferences.shared.hotkey,
+            onHotkey: {
+                Task { @MainActor in
+                    let flow = RewriterFlow()
+                    await flow.start()
+                }
+            },
+            optionHoldDetector: optionHoldDetector
+        )
         switch newTap.start() {
         case .success:
             hotkeyTap = newTap
@@ -120,14 +126,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startNormalLaunch() {
-        // Rewriter chord — defaults to Option+Space, user-configurable via Settings.
-        // The closure is @Sendable; don't capture self.
-        let rewriterTap = HotkeyEventTap(chord: Preferences.shared.hotkey) {
+        // Option hold detector — shows floating button when Option is held.
+        let buttonController = FloatingButtonController { [weak self] in
             Task { @MainActor in
                 let flow = RewriterFlow()
                 await flow.start()
             }
         }
+        self.floatingButtonController = buttonController
+
+        let detector = OptionHoldDetector { [weak buttonController] in
+            Task { @MainActor in
+                let point = NSEvent.mouseLocation
+                buttonController?.show(at: point)
+            }
+        }
+        self.optionHoldDetector = detector
+
+        // Rewriter chord — defaults to Option+Space, user-configurable via Settings.
+        let rewriterTap = HotkeyEventTap(
+            chord: Preferences.shared.hotkey,
+            onHotkey: {
+                Task { @MainActor in
+                    let flow = RewriterFlow()
+                    await flow.start()
+                }
+            },
+            optionHoldDetector: detector
+        )
         switch rewriterTap.start() {
         case .success:
             self.hotkeyTap = rewriterTap
