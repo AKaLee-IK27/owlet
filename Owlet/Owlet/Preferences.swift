@@ -40,9 +40,12 @@ final class Preferences: @unchecked Sendable {
             }
         }
         set {
-            if let data = try? JSONEncoder().encode(newValue) {
+            do {
+                let data = try JSONEncoder().encode(newValue)
                 defaults.set(data, forKey: Key.hotkey)
                 post(.hotkey)
+            } catch {
+                Self.logger.error("Failed to encode hotkey for persistence: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -67,12 +70,6 @@ final class Preferences: @unchecked Sendable {
             defaults.set(newValue, forKey: Key.launchAtLogin)
             post(.launchAtLogin)
         }
-    }
-
-    /// Corrupt-data setter for the rare "I edited UserDefaults by hand" case.
-    /// Wipes the stored hotkey blob; the next read returns `.default`.
-    func corruptStoredHotkey() {
-        defaults.removeObject(forKey: Key.hotkey)
     }
 
     private func post(_ change: Change) {
