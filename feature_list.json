@@ -31,6 +31,14 @@
       "dependencies": ["feat-003"],
       "status": "done",
       "evidence": "README updated as part of feat-003 (see Task 14 in the v0.3 plan). Version bumped to v0.3, Settings section added, Customisation section updated, smoke checklist extended with Settings window steps."
+    },
+    {
+      "id": "feat-005",
+      "name": "Hold-to-reveal floating button",
+      "description": "Pressing and holding Option for 300ms shows a small circular owl button near the cursor. Clicking it opens the existing rewrite popup. Extends HotkeyEventTap with keyUp events and adds OptionHoldDetector, FloatingButtonController, and FloatingButtonView.",
+      "dependencies": ["feat-001", "feat-003"],
+      "status": "done",
+      "evidence": "All 89 tests pass including 7 new OptionHoldDetectorTests. Build clean. New files: OptionHoldDetector.swift, FloatingButtonController.swift, FloatingButtonView.swift, OptionHoldDetectorTests.swift. Modified: HotkeyEventTap.swift (keyUp support), OwletApp.swift (wiring)."
     }
   ]
 }
