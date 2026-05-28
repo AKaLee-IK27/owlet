@@ -51,6 +51,13 @@ final class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        let settings = NSMenuItem(title: "Settings…", action: #selector(handleSettings), keyEquivalent: ",")
+        settings.keyEquivalentModifierMask = [.command]
+        settings.target = self
+        menu.addItem(settings)
+
+        menu.addItem(NSMenuItem.separator())
+
         let restart = NSMenuItem(title: "Restart Owlet", action: #selector(handleRestart), keyEquivalent: "r")
         restart.target = self
         menu.addItem(restart)
@@ -60,6 +67,15 @@ final class StatusBarController {
         menu.addItem(quit)
 
         statusItem.menu = menu
+    }
+
+    @objc private func handleSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        if #available(macOS 14, *) {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
     }
 
     private func permissionsLabel(_ status: PermissionStatus) -> String {
