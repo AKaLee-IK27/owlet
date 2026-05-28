@@ -97,8 +97,12 @@ struct ImprovePromptFloater: View {
             }
             .frame(maxHeight: 220)
 
-        case .result(_, let rewritten, _, _, _):
-            italicOutput(rewritten)
+        case .result(_, let rewritten, let segments, _, _):
+            if let segments = segments {
+                diffOutput(segments)
+            } else {
+                italicOutput(rewritten)
+            }
 
         case .empty(let text):
             VStack(alignment: .leading, spacing: 8) {
@@ -120,6 +124,15 @@ struct ImprovePromptFloater: View {
                 .lineSpacing(17 * 0.5)
                 .foregroundStyle(OwletDesign.fg)
                 .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+        }
+        .frame(maxHeight: 220)
+    }
+
+    private func diffOutput(_ segments: [DiffSegment]) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            FlowText(segments: segments)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
         }
@@ -500,6 +513,40 @@ private struct ShimmerText: View {
     }
 }
 
+/// Renders a sequence of diff segments with colored styling,
+/// wrapping naturally like prose text.
+private struct FlowText: View {
+    let segments: [DiffSegment]
+
+    var body: some View {
+        var result = Text("")
+        for (i, segment) in segments.enumerated() {
+            let spacer = i > 0 ? Text(" ") : Text("")
+            let styled = Text(segment.text)
+                .foregroundStyle(segmentColor(segment.kind))
+                .strikethrough(segment.kind == .removed, color: OwletDesign.diffRemoved)
+
+            if i == 0 {
+                result = styled
+            } else {
+                result = result + spacer + styled
+            }
+        }
+        return result
+            .font(OwletDesign.displayItalic(size: 17))
+            .lineSpacing(17 * 0.5)
+            .textSelection(.enabled)
+    }
+
+    private func segmentColor(_ kind: DiffSegment.Kind) -> Color {
+        switch kind {
+        case .added:    return OwletDesign.diffAdded
+        case .removed:  return OwletDesign.diffRemoved
+        case .unchanged: return OwletDesign.fg
+        }
+    }
+}
+
 #Preview("ready") {
     ImprovePromptFloater(
         state: .result(
@@ -529,6 +576,28 @@ private struct ShimmerText: View {
             segments: nil,
             canReplace: true,
             captureMethod: .clipboardFallback),
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+    .padding(40)
+    .background(OwletDesign.Sage.s800)
+}
+
+#Preview("result with diff") {
+    ImprovePromptFloater(
+        state: .result(
+            original: "the cat sat on the mat",
+            rewritten: "the dog sat on the rug",
+            segments: [
+                DiffSegment(text: "the", kind: .unchanged),
+                DiffSegment(text: "cat", kind: .removed),
+                DiffSegment(text: "dog", kind: .added),
+                DiffSegment(text: "sat", kind: .unchanged),
+                DiffSegment(text: "on", kind: .unchanged),
+                DiffSegment(text: "the", kind: .unchanged),
+                DiffSegment(text: "mat", kind: .removed),
+                DiffSegment(text: "rug", kind: .added),
+            ],
+            canReplace: true,
+            captureMethod: .ax),
         onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
     .padding(40)
     .background(OwletDesign.Sage.s800)

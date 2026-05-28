@@ -68,6 +68,8 @@ enum OwletDesign {
     static let accent      = Coral.c500
     static let accentSoft  = Coral.c100
     static let danger      = Color(red: 0xC4/255.0, green: 0x4A/255.0, blue: 0x37/255.0)
+    static let diffAdded   = Color(red: 0x1A/255.0, green: 0x8A/255.0, blue: 0x3B/255.0)
+    static let diffRemoved = Color(red: 0xC4/255.0, green: 0x4A/255.0, blue: 0x37/255.0)
 
     /// Floater surface — paper-cream with high translucency, sits over vibrancy.
     static let floaterFill = Paper.p0.opacity(0.94)
