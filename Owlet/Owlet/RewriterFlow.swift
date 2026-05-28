@@ -29,9 +29,12 @@ final class RewriterFlow {
     private static func makeDefaultRewriter() -> Rewriting {
         let fallback = NSString(string: "~/repos/owlet/tools/rewriter").expandingTildeInPath
         let dir = UserDefaults.standard.string(forKey: "rewriterDirectory") ?? fallback
+        // Read the model lazily on each construction — picks up Settings changes
+        // without needing a tap restart or notification subscription here.
+        let model = Preferences.shared.model
         return OllamaClient(
             executablePath: "\(dir)/owlet-rewriter",
-            arguments: [],
+            arguments: ["--model", model],
             timeoutSeconds: 30
         )
     }
