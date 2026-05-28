@@ -7,7 +7,7 @@ struct OwletApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     var body: some Scene {
-        Settings { EmptyView() }
+        Settings { SettingsView() }
     }
 }
 
@@ -20,12 +20,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController?
     private var permissionPollTimer: Timer?
     private var lastKnownPermissionStatus: PermissionStatus = .allGranted
+    private var prefsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // ALWAYS create the status bar item first. Provides a visible signal
-        // that Owlet is running and an escape hatch (Quit) regardless of
-        // what permission state we end up in.
         self.statusBar = StatusBarController()
+
+        prefsObserver = NotificationCenter.default.addObserver(
+            forName: Preferences.changedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self = self,
+                  let change = note.userInfo?["change"] as? Preferences.Change else { return }
+            Task { @MainActor in self.handlePreferencesChanged(change) }
+        }
 
         let status = PermissionChecker.check()
         lastKnownPermissionStatus = status
@@ -36,6 +44,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startNormalLaunch()
         case .missing(let missing):
             showPermissionModal(missing: missing)
+        }
+    }
+
+    private func handlePreferencesChanged(_ change: Preferences.Change) {
+        switch change {
+        case .hotkey:
+            rebindHotkeyTap()
+        case .launchAtLogin:
+            do {
+                try LoginItemManager.setRegistered(Preferences.shared.launchAtLogin)
+            } catch {
+                Self.logger.warning("Login item apply failed: \(error.localizedDescription, privacy: .public)")
+            }
+        case .model:
+            // Nothing to do here — RewriterFlow.makeDefaultRewriter() reads
+            // Preferences.shared.model lazily on each invocation.
+            break
+        }
+    }
+
+    private func rebindHotkeyTap() {
+        hotkeyTap?.stop()
+        let newTap = HotkeyEventTap(chord: Preferences.shared.hotkey) {
+            Task { @MainActor in
+                let flow = RewriterFlow()
+                await flow.start()
+            }
+        }
+        switch newTap.start() {
+        case .success:
+            hotkeyTap = newTap
+            Self.logger.info("Rewriter hotkey rebound to \(Preferences.shared.hotkey.displayString, privacy: .public)")
+        case .failure:
+            Self.logger.error("Hotkey rebind failed; showing permission modal")
+            showPermissionModal(missing: [.inputMonitoring])
         }
     }
 
