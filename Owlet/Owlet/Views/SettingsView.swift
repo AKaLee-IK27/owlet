@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var models: [String] = []
     @State private var modelListFailed: Bool = false
     @State private var loginItemError: String? = nil
+    @State private var isReverting: Bool = false
 
     var body: some View {
         Form {
@@ -60,13 +61,15 @@ struct SettingsView: View {
                         Toggle("", isOn: $launchAtLogin)
                             .labelsHidden()
                             .onChange(of: launchAtLogin) { _, newValue in
+                                if isReverting { isReverting = false; return }
                                 do {
                                     try LoginItemManager.setRegistered(newValue)
                                     Preferences.shared.launchAtLogin = newValue
                                     loginItemError = nil
                                 } catch {
                                     loginItemError = "\(error)"
-                                    launchAtLogin = !newValue // revert
+                                    isReverting = true
+                                    launchAtLogin = !newValue // triggers onChange; guard above absorbs it
                                 }
                             }
                         if let loginItemError {
