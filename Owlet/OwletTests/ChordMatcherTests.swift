@@ -38,4 +38,36 @@ final class ChordMatcherTests: XCTestCase {
         XCTAssertFalse(ChordMatcher.isOwletRewrite(key: "t", flags: flags))
         XCTAssertFalse(ChordMatcher.isOwletRewrite(key: "", flags: flags))
     }
+
+    // MARK: parameterised matches(chord:)
+
+    func test_matches_optionSpace_chord() {
+        let chord = Chord.default
+        let mods = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: true, shift: false)
+        XCTAssertTrue(ChordMatcher.matches(chord: chord, key: "space", flags: mods))
+    }
+
+    func test_matches_rejects_missing_modifier() {
+        let chord = Chord.default
+        let mods = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: false, shift: false)
+        XCTAssertFalse(ChordMatcher.matches(chord: chord, key: "space", flags: mods))
+    }
+
+    func test_matches_rejects_extra_modifier() {
+        let chord = Chord.default
+        let mods = ModifierFlags(fn: false, ctrl: false, cmd: true, alt: true, shift: false)
+        XCTAssertFalse(ChordMatcher.matches(chord: chord, key: "space", flags: mods))
+    }
+
+    func test_matches_rejects_wrong_key() {
+        let chord = Chord.default
+        let mods = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: true, shift: false)
+        XCTAssertFalse(ChordMatcher.matches(chord: chord, key: "j", flags: mods))
+    }
+
+    func test_matches_custom_chord_cmdShiftJ() {
+        let mods = ModifierFlags(fn: false, ctrl: false, cmd: true, alt: false, shift: true)
+        let chord = Chord(keyCode: 38, modifiers: mods)
+        XCTAssertTrue(ChordMatcher.matches(chord: chord, key: "j", flags: mods))
+    }
 }
