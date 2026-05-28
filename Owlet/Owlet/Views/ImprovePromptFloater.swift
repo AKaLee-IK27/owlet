@@ -91,13 +91,11 @@ struct ImprovePromptFloater: View {
     @ViewBuilder
     private var output: some View {
         switch state {
-        case .loading:
-            VStack(alignment: .leading, spacing: 9) {
-                SkeletonLine(width: 0.94, delay: 0)
-                SkeletonLine(width: 0.86, delay: 0.12)
-                SkeletonLine(width: 0.72, delay: 0.24)
+        case .loading(let sourceText, _, _):
+            ScrollView(.vertical, showsIndicators: false) {
+                ShimmerText(text: sourceText)
             }
-            .frame(minHeight: 100, alignment: .top)
+            .frame(maxHeight: 220)
 
         case .result(_, let rewritten, _, _, _):
             italicOutput(rewritten)
@@ -176,8 +174,7 @@ struct ImprovePromptFloater: View {
     // MARK: Actions — Replace · Try again · spacer · Copy
     private var shouldShowActions: Bool {
         switch state {
-        case .loading: return false
-        case .result, .empty, .error: return true
+        case .loading, .result, .empty, .error: return true
         }
     }
 
@@ -185,11 +182,16 @@ struct ImprovePromptFloater: View {
     private var actions: some View {
         switch state {
         case .loading:
-            EmptyView()
-
-        case .result(_, _, _, let canReplace, _):
             HStack(spacing: 4) {
-                PrimaryButton(label: "Replace", enabled: canReplace, action: onReplace)
+                GhostButton(label: "Cancel", action: onCancel)
+                Spacer(minLength: 0)
+            }
+
+        case .result(_, _, _, let canReplace, let captureMethod):
+            HStack(spacing: 4) {
+                if captureMethod == .ax {
+                    PrimaryButton(label: "Replace", enabled: canReplace, action: onReplace)
+                }
                 GhostButton(label: "Try again", action: onRetry)
                 Spacer(minLength: 0)
                 CopyButton(action: onCopy)
@@ -463,13 +465,49 @@ private extension View {
     }
 }
 
+/// Renders text with an animated shimmer overlay so the user can read
+/// their source while visually seeing that processing is underway.
+private struct ShimmerText: View {
+    let text: String
+    @State private var shimmerPhase: CGFloat = -1
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Text(text)
+                .font(OwletDesign.displayItalic(size: 17))
+                .lineSpacing(17 * 0.5)
+                .foregroundStyle(OwletDesign.fg.opacity(0.5))
+                .textSelection(.enabled)
+
+            Text(text)
+                .font(OwletDesign.displayItalic(size: 17))
+                .lineSpacing(17 * 0.5)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [OwletDesign.fgSubtle, OwletDesign.fg, OwletDesign.fgSubtle],
+                        startPoint: UnitPoint(x: shimmerPhase, y: 0),
+                        endPoint: UnitPoint(x: shimmerPhase + 0.5, y: 0)
+                    )
+                )
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
+                shimmerPhase = 1.5
+            }
+        }
+    }
+}
+
 #Preview("ready") {
     ImprovePromptFloater(
         state: .result(
             original: "write me a blog post about AI",
             rewritten: "Write a 600-word blog post for software engineers about practical uses of local LLMs in daily development workflows. Keep the tone pragmatic, with one concrete example per use case.",
             segments: nil,
-            canReplace: true),
+            canReplace: true,
+            captureMethod: .ax),
         onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
     .padding(40)
     .background(OwletDesign.Sage.s800)
@@ -477,7 +515,20 @@ private extension View {
 
 #Preview("loading") {
     ImprovePromptFloater(
-        state: .loading(sourceText: "anything", isLong: false),
+        state: .loading(sourceText: "write me a blog post about AI", isLong: false, captureMethod: .ax),
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+    .padding(40)
+    .background(OwletDesign.Sage.s800)
+}
+
+#Preview("clipboard result (no Replace)") {
+    ImprovePromptFloater(
+        state: .result(
+            original: "ls -la | grep foo",
+            rewritten: "find . -name '*foo*' -ls",
+            segments: nil,
+            canReplace: true,
+            captureMethod: .clipboardFallback),
         onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
     .padding(40)
     .background(OwletDesign.Sage.s800)
