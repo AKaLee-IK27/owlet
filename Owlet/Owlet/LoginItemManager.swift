@@ -3,42 +3,62 @@ import ServiceManagement
 import os.log
 
 enum LoginItemManager {
+
+    enum Failure: Error {
+        case registerThrew(String)
+        case unregisterThrew(String)
+    }
+
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "loginitem")
 
-    /// Pure decision: should we attempt to register based on current status?
-    /// Only skip if already enabled — every other status is worth trying.
+    /// Pure projection used by tests. The runtime call sites read
+    /// `SMAppService.mainApp.status` directly via `currentlyRegistered()`.
+    static func isRegistered(status: SMAppService.Status) -> Bool {
+        switch status {
+        case .enabled: return true
+        case .notRegistered, .requiresApproval, .notFound: return false
+        @unknown default: return false
+        }
+    }
+
+    /// Pure decision used by tests. Skip only if already enabled.
     static func shouldRegister(status: SMAppService.Status) -> Bool {
         switch status {
         case .enabled: return false
         case .notRegistered, .requiresApproval, .notFound: return true
-        @unknown default: return true  // optimistic; try registering on future cases
+        @unknown default: return true
         }
     }
 
-    /// Register Owlet as a login item if it's not already enabled.
-    /// No-op (with logging) if registration fails. Doesn't throw — login item
-    /// failure is non-fatal; the app still works for the current session.
-    static func registerIfNeeded() {
+    /// Current registration status of the main app's login-item helper.
+    static func currentlyRegistered() -> Bool {
+        isRegistered(status: SMAppService.mainApp.status)
+    }
+
+    /// Apply the user's preference. Throws on failure so the Settings UI
+    /// can surface the underlying error and revert the toggle.
+    static func setRegistered(_ on: Bool) throws {
         let service = SMAppService.mainApp
-        guard shouldRegister(status: service.status) else {
-            logger.info("Login item already enabled, skipping register")
-            return
-        }
-        do {
-            try service.register()
+        if on {
+            guard shouldRegister(status: service.status) else {
+                logger.info("Login item already enabled, no-op")
+                return
+            }
+            do { try service.register() } catch {
+                logger.error("register() threw: \(error.localizedDescription, privacy: .public)")
+                throw Failure.registerThrew(error.localizedDescription)
+            }
             logger.info("Registered Owlet as a login item")
-        } catch {
-            logger.error("Failed to register login item: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    /// Exposed for a future settings UI. Not called in v0.2.
-    static func unregister() {
-        let service = SMAppService.mainApp
-        do {
-            try service.unregister()
-        } catch {
-            logger.error("Failed to unregister login item: \(error.localizedDescription, privacy: .public)")
+        } else {
+            guard isRegistered(status: service.status) else {
+                logger.info("Login item already not enabled, no-op")
+                return
+            }
+            do { try service.unregister() } catch {
+                logger.error("unregister() threw: \(error.localizedDescription, privacy: .public)")
+                throw Failure.unregisterThrew(error.localizedDescription)
+            }
+            logger.info("Unregistered Owlet as a login item")
         }
     }
 }

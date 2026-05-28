@@ -58,8 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Register login item (no-op if already registered).
-        LoginItemManager.registerIfNeeded()
+        // Apply the launch-at-login preference (defaults to true on first launch).
+        do {
+            try LoginItemManager.setRegistered(Preferences.shared.launchAtLogin)
+        } catch {
+            Self.logger.warning("Login item apply failed: \(error.localizedDescription, privacy: .public)")
+        }
 
         // (statusBar was already created in applicationDidFinishLaunching.)
 
