@@ -17,21 +17,26 @@ final class HotkeyEventTap {
     private var runLoopSource: CFRunLoopSource?
     private let chord: Chord
     private let onHotkey: @Sendable () -> Void
+    private let optionHoldDetector: OptionHoldDetector?
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
 
     /// - Parameters:
     ///   - chord: The chord this tap watches for. Read once at construction.
     ///   - onHotkey: Dispatched to a background queue when the chord fires.
+    ///   - optionHoldDetector: Optional detector for Option hold-to-reveal.
     init(chord: Chord,
-         onHotkey: @escaping @Sendable () -> Void) {
+         onHotkey: @escaping @Sendable () -> Void,
+         optionHoldDetector: OptionHoldDetector? = nil) {
         self.chord = chord
         self.onHotkey = onHotkey
+        self.optionHoldDetector = optionHoldDetector
     }
 
     @discardableResult
     func start() -> Result<Void, StartError> {
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
             (1 << CGEventType.tapDisabledByTimeout.rawValue) |
             (1 << CGEventType.tapDisabledByUserInput.rawValue)
 
@@ -72,6 +77,7 @@ final class HotkeyEventTap {
         }
         self.tap = nil
         self.runLoopSource = nil
+        self.optionHoldDetector?.cancel()
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -82,10 +88,7 @@ final class HotkeyEventTap {
             }
             return Unmanaged.passUnretained(event)
         }
-        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let keyName = KeyCodeMap.name(for: Int(keyCode)) ?? ""
         let flags = ModifierFlags(
             fn: event.flags.contains(.maskSecondaryFn),
             ctrl: event.flags.contains(.maskControl),
@@ -94,14 +97,34 @@ final class HotkeyEventTap {
             shift: event.flags.contains(.maskShift)
         )
 
-        guard ChordMatcher.matches(chord: chord, key: keyName, flags: flags) else {
+        if type == .keyDown {
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            let keyName = KeyCodeMap.name(for: Int(keyCode)) ?? ""
+
+            // Chord match takes priority — cancel hold detector and fire rewrite.
+            if ChordMatcher.matches(chord: chord, key: keyName, flags: flags) {
+                optionHoldDetector?.cancel()
+                DispatchQueue.global(qos: .userInitiated).async { [onHotkey] in
+                    onHotkey()
+                }
+                return nil  // consume the event
+            }
+
+            // Option-only keyDown → start hold detection.
+            if let detector = optionHoldDetector {
+                detector.handleKeyDown(flags: flags)
+            }
             return Unmanaged.passUnretained(event)
         }
 
-        // Consume the event AND dispatch the work async so the tap doesn't block.
-        DispatchQueue.global(qos: .userInitiated).async { [onHotkey] in
-            onHotkey()
+        if type == .keyUp {
+            // Option keyUp → cancel hold detection.
+            if flags.alt, let detector = optionHoldDetector {
+                detector.handleOptionKeyUp()
+            }
+            return Unmanaged.passUnretained(event)
         }
-        return nil
+
+        return Unmanaged.passUnretained(event)
     }
 }
