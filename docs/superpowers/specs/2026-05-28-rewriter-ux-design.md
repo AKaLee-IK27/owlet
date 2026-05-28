@@ -80,9 +80,9 @@ Owlet remains single-process and single-tap. The Settings window is just another
 1. User opens Settings (Cmd+, or "Settings…" menu item). `SettingsView` renders the current chord ("⌥ Space") next to a `[Record]` button.
 2. User clicks `[Record]` → `HotkeyRecorderField`'s underlying NSView becomes first responder; field renders "Press a chord…" placeholder.
 3. NSView overrides `keyDown(with:)`. First event with at least one of `[.command, .option, .control, .shift, .function]` set is accepted; bare-key and modifier-only events are ignored.
-4. NSView builds a `Chord` from `event.keyCode` + a `ModifierFlags` derived from `event.modifierFlags`; sends it to the SwiftUI binding.
-5. SettingsView shows the new chord. User clicks `[Save]` → `Preferences.shared.hotkey = newChord`. Clicking `[Reset to default]` writes `.default` instead.
-6. `Preferences` posts `OwletPreferencesChanged` with payload `.hotkey`. `AppDelegate` calls `hotkeyTap?.stop()`, constructs a fresh `HotkeyEventTap` with the new chord, calls `.start()`. On success, no UI feedback (the new chord is now live). On `.failure(.tapCreationFailed)`, fall back to the previous chord and surface the permissions modal.
+4. NSView builds a `Chord` from `event.keyCode` + a `ModifierFlags` derived from `event.modifierFlags`; sends it to the SwiftUI binding and ends the recording state.
+5. SettingsView observes the binding change and writes it straight to `Preferences.shared.hotkey` — chord capture is itself the commit, matching Karabiner / Raycast / Alfred. An extra "Save" click would be redundant friction. `[Reset to default]` writes `.default`; `[Cancel]` (visible only while recording) abandons capture and keeps the previous chord.
+6. `Preferences` posts `OwletPreferencesChanged` with payload `.hotkey`. `AppDelegate` calls `hotkeyTap?.stop()`, constructs a fresh `HotkeyEventTap` with the new chord, calls `.start()`. On success, no UI feedback (the new chord is now live). On `.failure(.tapCreationFailed)`, surface the permissions modal — the previous tap is already stopped; the user re-records after granting.
 
 ### 4.2 Picking a model
 
@@ -128,7 +128,7 @@ Owlet remains single-process and single-tap. The Settings window is just another
 ### 6.3 Manual smoke test (add to README's checklist)
 
 1. Open Settings (Cmd+, **or** menu-bar → "Settings…"). The window shows three rows; the hotkey row shows "⌥ Space".
-2. Click `[Record]`, press `Ctrl+Shift+J`, click `[Save]`. The window now shows "⌃⇧J".
+2. Click `[Record]`, press `Ctrl+Shift+J`. The recording state ends automatically and the window shows "⌃⇧J".
 3. Place cursor in a text field somewhere (TextEdit, Notes), type a draft prompt, press `Ctrl+Shift+J`. The Improve Prompt popup appears as before.
 4. Press Option+Space in the same text field — it should now type a non-breaking space (NBSP), confirming the old binding is released.
 5. Click `[Reset to default]`. The window shows "⌥ Space". Repeat step 3 with Option+Space; popup appears.
