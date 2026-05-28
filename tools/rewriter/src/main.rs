@@ -3,8 +3,26 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
-const MODEL: &str = "qwen3:8b";
 const TIMEOUT_SECS: u64 = 30;
+const DEFAULT_MODEL: &str = "qwen3:8b";
+
+fn parse_model_arg(args: &[String]) -> Result<String, String> {
+    // Tiny hand-rolled parser — clap would be overkill for one flag.
+    // Accepts: <prog> [--model <name>]. Rejects unknown flags so typos surface early.
+    let mut i = 1;
+    let mut model: Option<String> = None;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--model" => {
+                let value = args.get(i + 1).ok_or_else(|| "--model requires a value".to_string())?;
+                model = Some(value.clone());
+                i += 2;
+            }
+            other => return Err(format!("unknown argument: {other}")),
+        }
+    }
+    Ok(model.unwrap_or_else(|| DEFAULT_MODEL.to_string()))
+}
 
 const SYSTEM_PROMPT: &str = r#"You are a prompt engineering assistant. Rewrite the user's draft prompt — intended for a chat AI like Claude, GPT, or Gemini — so it produces better answers.
 
@@ -119,9 +137,9 @@ fn parse_response(body: &str) -> Result<String, RewriteError> {
         .ok_or_else(|| RewriteError::Parse("missing message.content".into()))
 }
 
-fn build_payload(prompt: &str) -> serde_json::Value {
+fn build_payload(prompt: &str, model: &str) -> serde_json::Value {
     serde_json::json!({
-        "model": MODEL,
+        "model": model,
         "messages": [
             { "role": "system", "content": SYSTEM_PROMPT },
             { "role": "user",   "content": prompt },
@@ -132,11 +150,11 @@ fn build_payload(prompt: &str) -> serde_json::Value {
     })
 }
 
-fn call_ollama(prompt: &str) -> Result<String, RewriteError> {
+fn call_ollama(prompt: &str, model: &str) -> Result<String, RewriteError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build();
-    let payload = build_payload(prompt);
+    let payload = build_payload(prompt, model);
     match agent.post(OLLAMA_URL).send_json(payload) {
         Ok(response) => {
             let body = response
@@ -170,7 +188,8 @@ fn call_ollama(prompt: &str) -> Result<String, RewriteError> {
     }
 }
 
-fn run() -> Result<Option<String>, RewriteError> {
+fn run(args: &[String]) -> Result<Option<String>, RewriteError> {
+    let model = parse_model_arg(args).map_err(RewriteError::Parse)?;
     let mut input = String::new();
     io::stdin()
         .read_to_string(&mut input)
@@ -178,7 +197,7 @@ fn run() -> Result<Option<String>, RewriteError> {
     if input.trim().is_empty() {
         return Ok(None);
     }
-    let raw = call_ollama(&input)?;
+    let raw = call_ollama(&input, &model)?;
     let cleaned = clean_output(&raw);
     if cleaned.trim().is_empty() {
         return Err(RewriteError::Empty);
@@ -187,10 +206,9 @@ fn run() -> Result<Option<String>, RewriteError> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let args: Vec<String> = std::env::args().collect();
+    match run(&args) {
         Ok(Some(s)) => {
-            // Use write! on stdout (not println!) so we don't append a newline
-            // the Python script also didn't add.
             let stdout = io::stdout();
             let mut handle = stdout.lock();
             if let Err(e) = handle.write_all(s.as_bytes()) {
@@ -354,8 +372,8 @@ mod tests {
 
     #[test]
     fn build_payload_has_expected_shape() {
-        let p = build_payload("rewrite me");
-        assert_eq!(p["model"], MODEL);
+        let p = build_payload("rewrite me", "qwen3:8b");
+        assert_eq!(p["model"], "qwen3:8b");
         assert_eq!(p["stream"], false);
         assert_eq!(p["think"], false);
         assert_eq!(p["options"]["temperature"], 0.2);
@@ -365,8 +383,37 @@ mod tests {
         assert_eq!(msgs[1]["role"], "user");
         assert_eq!(msgs[1]["content"], "rewrite me");
         let sys_text = msgs[0]["content"].as_str().unwrap();
-        // Anchor on a phrase guaranteed by the spec — change the assertion if the prompt is intentionally restructured.
         assert!(sys_text.contains("prompt engineering assistant"));
         assert!(sys_text.contains("Preserve the language of the input"));
+    }
+
+    #[test]
+    fn build_payload_uses_provided_model() {
+        let p = build_payload("hi", "llama3.1:8b");
+        assert_eq!(p["model"], "llama3.1:8b");
+    }
+
+    #[test]
+    fn parse_model_arg_returns_value_when_present() {
+        let args = vec!["owlet-rewriter".to_string(), "--model".to_string(), "llama3.1:8b".to_string()];
+        assert_eq!(parse_model_arg(&args), Ok("llama3.1:8b".to_string()));
+    }
+
+    #[test]
+    fn parse_model_arg_returns_default_when_absent() {
+        let args = vec!["owlet-rewriter".to_string()];
+        assert_eq!(parse_model_arg(&args), Ok("qwen3:8b".to_string()));
+    }
+
+    #[test]
+    fn parse_model_arg_errors_when_flag_has_no_value() {
+        let args = vec!["owlet-rewriter".to_string(), "--model".to_string()];
+        assert!(parse_model_arg(&args).is_err());
+    }
+
+    #[test]
+    fn parse_model_arg_errors_on_unknown_flag() {
+        let args = vec!["owlet-rewriter".to_string(), "--unknown".to_string(), "x".to_string()];
+        assert!(parse_model_arg(&args).is_err());
     }
 }
