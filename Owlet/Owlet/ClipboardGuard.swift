@@ -26,6 +26,11 @@ final class ClipboardGuard: @unchecked Sendable {
     private var pendingOriginal: String?
     private var pendingRestoreWorkItem: DispatchWorkItem?
 
+    /// The last-known pasteboard changeCount after an Owlet-initiated write.
+    /// Used by AXBridge to detect whether the clipboard was modified externally
+    /// (e.g., by Ghostty auto-copy, user Cmd+C) since Owlet last touched it.
+    private(set) var lastOwletChangeCount: Int = 0
+
     private init() {}
 
     /// Snapshot the current clipboard BEFORE you overwrite it.
@@ -76,6 +81,21 @@ final class ClipboardGuard: @unchecked Sendable {
         pendingOriginal = nil
     }
 
+    /// Record the current pasteboard changeCount after an Owlet write.
+    func recordOwletChangeCount(_ count: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        lastOwletChangeCount = count
+    }
+
+    /// Check whether the clipboard has been modified externally since Owlet
+    /// last wrote to it.
+    func hasExternalClipboardChange() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return NSPasteboard.general.changeCount != lastOwletChangeCount
+    }
+
     private func performRestore() {
         lock.lock()
         defer { lock.unlock() }
@@ -83,6 +103,7 @@ final class ClipboardGuard: @unchecked Sendable {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(original, forType: .string)
+        lastOwletChangeCount = pb.changeCount
         pendingOriginal = nil
         pendingRestoreWorkItem = nil
     }

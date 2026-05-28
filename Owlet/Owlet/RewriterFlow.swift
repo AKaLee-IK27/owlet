@@ -195,6 +195,7 @@ final class RewriterFlow {
             // is the best we can do. Write the rewrite and dismiss; user pastes with Cmd+V.
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(rewritten, forType: .string)
+            ClipboardGuard.shared.recordOwletChangeCount(NSPasteboard.general.changeCount)
             popup.hide()
         }
     }
@@ -203,6 +204,7 @@ final class RewriterFlow {
         guard case .result(_, let rewritten, _, _, _) = lastObservedState else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rewritten, forType: .string)
+        ClipboardGuard.shared.recordOwletChangeCount(NSPasteboard.general.changeCount)
         popup.hide()
     }
 

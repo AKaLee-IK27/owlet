@@ -59,15 +59,26 @@ enum AXBridge {
             ))
         }
 
-        // Fallback: synthesize Cmd+C in Swift (handles Electron, Chrome, Terminal).
-        // ClipboardGuard captures the user's original clipboard BEFORE we
-        // overwrite it via Cmd+C, and coalesces overlapping restore timers so
-        // rapid re-triggers don't lose the original.
+        // Fallback: check if clipboard has fresh external content (e.g., Ghostty
+        // auto-copy, user Cmd+C). If so, use it directly without Cmd+C.
+        if ClipboardGuard.shared.hasExternalClipboardChange(),
+           let text = NSPasteboard.general.string(forType: .string),
+           !text.isEmpty {
+            return .captured(SelectionSnapshot(
+                text: text,
+                sourceAppBundleID: focus?.appBundleID ?? "",
+                focusedElement: focus?.focusedElement,
+                captureMethod: .clipboardFallback
+            ))
+        }
+
+        // Clipboard is stale or empty — synthesize Cmd+C to capture the selection.
         ClipboardGuard.shared.snapshotBeforeOverwrite()
         if let text = swiftCmdCCapture() {
             // 5 s gives the popup plenty of time to consume the clipboard
             // before we restore the original underneath it.
             ClipboardGuard.shared.scheduleRestore(after: 5.0)
+            ClipboardGuard.shared.recordOwletChangeCount(NSPasteboard.general.changeCount)
             return .captured(SelectionSnapshot(
                 text: text,
                 sourceAppBundleID: focus?.appBundleID ?? "",
@@ -83,6 +94,7 @@ enum AXBridge {
         // original back to itself (benign no-op, just a spurious changeCount
         // bump). Either way the user's true original is preserved.
         ClipboardGuard.shared.scheduleRestore(after: 0.5)
+        ClipboardGuard.shared.recordOwletChangeCount(NSPasteboard.general.changeCount)
 
         return focus == nil ? .noFocus : .empty
     }
