@@ -393,21 +393,41 @@ private struct GhostButton: View {
 private struct CopyButton: View {
     let action: () -> Void
     @State private var hover = false
+    @State private var didCopy = false
+    @State private var revertTask: DispatchWorkItem?
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "doc.on.doc")
-                .font(.system(size: 12))
-                .frame(width: 30, height: 30)
-                .foregroundStyle(OwletDesign.fgSubtle)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(hover ? OwletDesign.bgSunken : .clear)
-                )
+        Button(action: {
+            action()
+            didCopy = true
+            revertTask?.cancel()
+            let task = DispatchWorkItem { didCopy = false }
+            revertTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: task)
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12, weight: didCopy ? .semibold : .regular))
+                if didCopy {
+                    Text("Copied")
+                        .font(OwletDesign.ui(size: 12, weight: .medium))
+                }
+            }
+            .frame(height: 30)
+            .padding(.horizontal, didCopy ? 10 : 0)
+            .frame(minWidth: 30)
+            .foregroundStyle(didCopy ? OwletDesign.brand : OwletDesign.fgSubtle)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(didCopy
+                          ? OwletDesign.brandSoft
+                          : (hover ? OwletDesign.bgSunken : .clear))
+            )
+            .animation(.easeInOut(duration: 0.15), value: didCopy)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .help("Copy")
+        .help(didCopy ? "Copied to clipboard" : "Copy")
     }
 }
 
