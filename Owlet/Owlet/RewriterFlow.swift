@@ -206,7 +206,6 @@ final class RewriterFlow {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rewritten, forType: .string)
         ClipboardGuard.shared.recordOwletChangeCount(NSPasteboard.general.changeCount)
-        popup.hide()
     }
 
     private func handleCancel() { popup.hide() }

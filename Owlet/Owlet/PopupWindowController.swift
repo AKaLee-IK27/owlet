@@ -4,9 +4,12 @@ import SwiftUI
 /// Owns the non-activating NSPanel that hosts the SwiftUI popup.
 /// Anchors near a focused-element screen rect and manages entry/exit
 /// animations using the durations in Theme.Motion.
+@MainActor
 final class PopupWindowController {
 
     private var panel: NSPanel?
+    private var clickOutsideMonitor: Any?
+    private var appSwitchObserver: NSObjectProtocol?
 
     /// Show the given SwiftUI content in the floating panel.
     /// - Parameters:
@@ -17,7 +20,7 @@ final class PopupWindowController {
     ///   - width: override the panel/content width. Defaults to
     ///     `Theme.Card.width` for the legacy rewriter popup. The v0.4 branded
     ///     floater passes `OwletDesign.Floater.width` (420pt).
-    @MainActor func show<Content: View>(_ content: Content,
+    func show<Content: View>(_ content: Content,
                                         anchorRect: NSRect?,
                                         width: CGFloat? = nil) {
         let w = width ?? Theme.Card.width
@@ -64,9 +67,14 @@ final class PopupWindowController {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel?.animator().alphaValue = 1
         }
+
+        installClickOutsideMonitor()
+        installAppSwitchDismiss()
     }
 
     func hide(_ completion: (() -> Void)? = nil) {
+        removeClickOutsideMonitor()
+        removeAppSwitchDismiss()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.12
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -75,6 +83,40 @@ final class PopupWindowController {
             self.panel?.orderOut(nil)
             completion?()
         })
+    }
+
+    private func installClickOutsideMonitor() {
+        guard clickOutsideMonitor == nil else { return }
+        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            self?.hide()
+        }
+    }
+
+    private func removeClickOutsideMonitor() {
+        if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickOutsideMonitor = nil
+        }
+    }
+
+    private func installAppSwitchDismiss() {
+        guard appSwitchObserver == nil else { return }
+        appSwitchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.hide()
+        }
+    }
+
+    private func removeAppSwitchDismiss() {
+        if let observer = appSwitchObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            appSwitchObserver = nil
+        }
     }
 
     private func position(near anchor: NSRect) {
