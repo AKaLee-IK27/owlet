@@ -21,16 +21,16 @@
       "name": "Configurable hotkey (v0.3)",
       "description": "v0.2 hardcodes fn+Ctrl+R. Add a settings surface (likely menu-bar item) that lets the user pick the chord, persists via UserDefaults, and rebinds the CGEventTap. Spec lives at docs/superpowers/specs/ (to be created).",
       "dependencies": [],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "./init.sh PASS on 2026-05-28; Rust suite 29/29; Swift build clean. Implemented: Chord type, KeyCodeMap, Preferences (UserDefaults), HotkeyRecorderField, SettingsView (hotkey + model picker + launch-at-login), AppDelegate wired to rebind on change, owlet-rewriter --model flag. Manual smoke pending user walkthrough."
     },
     {
       "id": "feat-004",
       "name": "README v0.3 refresh",
       "description": "README currently says v0.2. Once feat-003 ships (or v0.3 is otherwise tagged), update version mentions, prerequisites, and the manual smoke test checklist.",
       "dependencies": ["feat-003"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "README updated as part of feat-003 (see Task 14 in the v0.3 plan). Version bumped to v0.3, Settings section added, Customisation section updated, smoke checklist extended with Settings window steps."
     }
   ]
 }

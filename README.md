@@ -1,8 +1,8 @@
 # Owlet
 
-Small, friendly local-LLM tools for macOS. v0.2 ships **Owlet Rewriter** — a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen3:8b`). No cloud, no API keys, no browser extension.
+Small, friendly local-LLM tools for macOS. v0.3 ships **Owlet Rewriter** — a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen3:8b`). No cloud, no API keys, no browser extension.
 
-**Workflow:** select text → press `fn+Ctrl+R` → review the inline diff → click Replace (in-place) or Copy.
+**Workflow:** select text → press `Option+Space` → review the inline diff → click Replace (in-place) or Copy.
 
 ## Prerequisites
 
@@ -42,13 +42,17 @@ In Electron apps (Slack, Discord, VS Code, Notion, Claude desktop) and Chromium 
 
 ## Auto-launch at login
 
-On first successful launch (after permissions are granted) Owlet registers itself as a Login Item via `SMAppService`. You can disable this in `System Settings → General → Login Items`. If you disable it, Owlet's hotkey works only when you launch the app manually.
+On first successful launch (after permissions are granted) Owlet registers itself as a Login Item via `SMAppService`. You can toggle this in Settings (`Cmd+,`) or in `System Settings → General → Login Items`. If you disable it, Owlet's hotkey works only when you launch the app manually.
+
+## Settings (v0.3 onward)
+
+Press `Cmd+,` (or pick "Settings…" from the menu-bar icon) to change the hotkey, switch the Ollama model, or toggle "Launch at login". The default hotkey is `Option+Space`; intercepting this disables typing a non-breaking space while Owlet is running. If that bites you, change the chord or click "Reset" to restore the default after retrying with something else.
 
 ## Customisation
 
-- **Change the model:** edit `const MODEL: &str = "qwen3:8b"` in `tools/rewriter/src/main.rs`, then re-run `./install.sh`.
-- **Change the prompt:** edit `const SYSTEM_PROMPT` in the same file, then re-run `./install.sh`.
-- **Change the hotkey:** v0.2 hardcodes `fn+Ctrl+R`. Configurable hotkey is a v0.3 follow-up.
+- **Change the model:** open Settings (`Cmd+,`) and pick a locally-pulled Ollama model from the dropdown. No rebuild required.
+- **Change the hotkey:** open Settings (`Cmd+,`), click Record, press your preferred chord. Changes take effect immediately.
+- **Change the prompt:** edit `const SYSTEM_PROMPT` in `tools/rewriter/src/main.rs`, then re-run `./install.sh`.
 
 ## Project layout
 
@@ -65,16 +69,24 @@ On first successful launch (after permissions are granted) Owlet registers itsel
 
 After install:
 
-- [ ] **TextEdit** — type a draft, select, `fn+Ctrl+R`. Popup with inline diff → Enter → text replaced in place.
+- [ ] **TextEdit** — type a draft, select, `Option+Space`. Popup with inline diff → Enter → text replaced in place.
 - [ ] **Claude desktop** (Electron) — same flow → popup → Replace puts rewrite on clipboard for `Cmd+V`.
 - [ ] **Chrome / Safari article body** — same as Claude.
 - [ ] **Slack / Discord / Notion / VS Code** — same.
 - [ ] **Terminal / iTerm / Ghostty** — same.
 - [ ] **Empty selection** — popup shows "Select some text first".
 - [ ] **Password field** — popup shows "Owlet won't read from password fields".
-- [ ] **Spam fn+Ctrl+R rapidly** — only one popup, in-flight cancelled.
+- [ ] **Spam `Option+Space` rapidly** — only one popup, in-flight cancelled.
 - [ ] **Kill Owlet** via Activity Monitor → press hotkey → nothing (expected).
 - [ ] **Reboot** → Owlet auto-launches → hotkey works.
+
+**Settings window (v0.3):**
+- [ ] Open via `Cmd+,` or menubar → "Settings…". Three rows visible; Hotkey shows `⌥ Space`.
+- [ ] Click `Record`, press `Ctrl+Shift+J`. The chord is committed on capture (no extra Save click); the field now shows `⌃⇧J`. Trigger a rewrite with the new chord — popup appears.
+- [ ] Press `Option+Space` in a text field — it types a non-breaking space (NBSP), confirming the old binding is released.
+- [ ] Click `Reset`. Trigger with `Option+Space`; popup appears.
+- [ ] Switch the model picker to a different locally-pulled model. Trigger a rewrite. In `Console.app` (filter `subsystem:co.greenpassport.owlet`), verify the spawned `owlet-rewriter` was invoked with the new `--model` value.
+- [ ] Toggle "Launch at login" off, relaunch the Mac (or run `osascript -e 'tell application "Owlet" to quit'`), confirm Owlet doesn't auto-start. Re-toggle on, confirm it does.
 
 ## Troubleshooting
 

@@ -3,7 +3,7 @@
 ## Current State
 
 **Last Updated:** 2026-05-28
-**Active Feature:** feat-001 (commit), feat-002 (next)
+**Active Feature:** None — v0.3 milestone complete
 
 ## Status
 
@@ -12,16 +12,18 @@
 - [x] Rust port of owlet-rewriter merged (afc5605) — 47/47 tests pass
 - [x] App icon wired into AppIcon.appiconset (10 sizes, Contents.json, project.yml setting)
 - [x] Build verified — AppIcon.icns present in built bundle
+- [x] **feat-003: Configurable hotkey (v0.3 milestone)** — 14 tasks, ~13 commits on feat/rewriter-ux-v0.3. Ships: Chord type, KeyCodeMap, Preferences/UserDefaults, HotkeyRecorderField, SettingsView (hotkey recorder + Ollama model picker + launch-at-login toggle), AppDelegate rebind-on-change wiring, owlet-rewriter `--model` flag, menubar "Settings…" item. init.sh PASS 2026-05-28; Rust 29/29; Swift build clean.
+- [x] **feat-004: README v0.3 refresh** — version bumped, Settings section added, Customisation section updated, smoke checklist extended with Settings window steps.
 
 ### What's In Progress
 
-- [ ] **feat-001 commit**: working tree has `M Owlet/project.yml` and untracked `Owlet/Owlet/Assets.xcassets/` + `docs/assets/`. Stage and commit before moving on.
+None.
 
 ### What's Next
 
-1. Commit the asset catalog + project.yml change (feat-001)
-2. Consider feat-002 (status-bar glyph) — small, self-contained, visible win
-3. Decide whether feat-003 (configurable hotkey) goes through full spec→plan cycle
+1. User manual smoke walkthrough of Settings window (see README checklist — Settings window v0.3 section)
+2. Consider feat-002 (status-bar owl glyph) — small, self-contained, visible win
+3. Tag v0.3 once manual smoke passes
 
 ## Blockers / Risks
 
