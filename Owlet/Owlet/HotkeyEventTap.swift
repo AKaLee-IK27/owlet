@@ -3,10 +3,10 @@ import CoreGraphics
 import AppKit
 import os.log
 
-/// Global keyboard event tap that listens for Owlet's hotkey chord.
+/// Global keyboard event tap that listens for Owlet's configured chord.
 /// Requires Input Monitoring permission (TCC). Self-heals if disabled.
-/// Callback dispatches the user's work to a background queue so the tap
-/// itself doesn't block (macOS kills taps that take too long).
+/// The chord is captured at construction time — to change it, stop the
+/// tap and create a fresh one with the new chord.
 final class HotkeyEventTap {
 
     enum StartError: Error, Equatable {
@@ -15,24 +15,19 @@ final class HotkeyEventTap {
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private let chord: @Sendable (String, ModifierFlags) -> Bool
+    private let chord: Chord
     private let onHotkey: @Sendable () -> Void
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
 
     /// - Parameters:
-    ///   - chord: Pure predicate the tap consults on every keyDown to decide
-    ///     whether to intercept. Pass `ChordMatcher.isOwletRewrite` or
-    ///     `ChordMatcher.isOwletImprove` — multiple instances of the tap can
-    ///     coexist, one per chord.
-    ///   - onHotkey: Dispatched to a background queue when `chord` returns true.
-    init(chord: @escaping @Sendable (String, ModifierFlags) -> Bool,
+    ///   - chord: The chord this tap watches for. Read once at construction.
+    ///   - onHotkey: Dispatched to a background queue when the chord fires.
+    init(chord: Chord,
          onHotkey: @escaping @Sendable () -> Void) {
         self.chord = chord
         self.onHotkey = onHotkey
     }
 
-    /// Start the event tap. Returns success/failure — caller surfaces
-    /// `.tapCreationFailed` to the user via the permission modal flow.
     @discardableResult
     func start() -> Result<Void, StartError> {
         let mask: CGEventMask =
@@ -65,7 +60,7 @@ final class HotkeyEventTap {
         self.runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        Self.logger.info("HotkeyEventTap started")
+        Self.logger.info("HotkeyEventTap started for chord \(self.chord.displayString, privacy: .public)")
         return .success(())
     }
 
@@ -80,7 +75,6 @@ final class HotkeyEventTap {
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Self-heal: re-enable the tap if macOS disabled it.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -91,7 +85,7 @@ final class HotkeyEventTap {
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let keyName = keyCodeToString(Int(keyCode))
+        let keyName = KeyCodeMap.name(for: Int(keyCode)) ?? ""
         let flags = ModifierFlags(
             fn: event.flags.contains(.maskSecondaryFn),
             ctrl: event.flags.contains(.maskControl),
@@ -100,8 +94,8 @@ final class HotkeyEventTap {
             shift: event.flags.contains(.maskShift)
         )
 
-        guard chord(keyName, flags) else {
-            return Unmanaged.passUnretained(event)  // pass through
+        guard ChordMatcher.matches(chord: chord, key: keyName, flags: flags) else {
+            return Unmanaged.passUnretained(event)
         }
 
         // Consume the event AND dispatch the work async so the tap doesn't block.
@@ -109,16 +103,5 @@ final class HotkeyEventTap {
             onHotkey()
         }
         return nil
-    }
-
-    /// Maps CGKeyCode to a single-character string for chord matching.
-    /// Currently only 'r' is needed. If the chord becomes user-configurable
-    /// later this needs UCKeyTranslate for full layout support — these
-    /// literals assume US/QWERTY-style layouts.
-    private func keyCodeToString(_ keyCode: Int) -> String {
-        switch keyCode {
-        case 15: return "r"
-        default: return ""
-        }
     }
 }

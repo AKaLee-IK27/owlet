@@ -40,11 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startNormalLaunch() {
-        // Rewriter chord — fn+Ctrl+R. Closure is @Sendable; don't capture self.
-        // The popup itself is now the v0.4 branded ImprovePromptFloater (the
-        // "Improve prompt" design); both fn+Ctrl+R and the feature name refer
-        // to the same thing — there is no separate fn+Ctrl+I.
-        let rewriterTap = HotkeyEventTap(chord: ChordMatcher.isOwletRewrite) {
+        // Rewriter chord — defaults to Option+Space, user-configurable via Settings.
+        // The closure is @Sendable; don't capture self.
+        let rewriterTap = HotkeyEventTap(chord: Preferences.shared.hotkey) {
             Task { @MainActor in
                 let flow = RewriterFlow()
                 await flow.start()
