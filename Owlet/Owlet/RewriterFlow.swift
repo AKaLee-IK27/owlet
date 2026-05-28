@@ -60,7 +60,7 @@ final class RewriterFlow {
         }
 
         let isLong = snap.text.count > Self.inputSoftWarn
-        setState(.loading(sourceText: snap.text, isLong: isLong))
+        setState(.loading(sourceText: snap.text, isLong: isLong, captureMethod: snap.captureMethod))
 
         // 2) Rewrite
         let rewrittenRaw: String
@@ -105,7 +105,8 @@ final class RewriterFlow {
         setState(.result(original: snap.text,
                           rewritten: rewritten,
                           segments: collapse ? nil : diff.segments,
-                          canReplace: canReplace))
+                          canReplace: canReplace,
+                          captureMethod: snap.captureMethod))
     }
 
     private func setState(_ state: PopupState) {

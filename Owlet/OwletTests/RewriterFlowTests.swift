@@ -130,8 +130,9 @@ final class RewriterFlowTests: XCTestCase {
         rewriter.response = .success("Captured via clipboard.")
         let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
         await flow.start()
-        if case .result(_, _, _, let canReplace, _) = flow.lastObservedState {
+        if case .result(_, _, _, let canReplace, let method) = flow.lastObservedState {
             XCTAssertTrue(canReplace, "canReplace stays true; handleReplace falls back to clipboard write")
+            XCTAssertEqual(method, .clipboardFallback, "clipboard capture method should propagate to result")
         } else {
             XCTFail("expected .result, got \(String(describing: flow.lastObservedState))")
         }
