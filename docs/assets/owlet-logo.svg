@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 220" width="400" height="440" role="img" aria-label="Owlet logo">
+  <defs>
+    <!-- Reusable body silhouette: shield with two short, rounded ear tufts -->
+    <path id="bodyShape"
+          d="M 34 46
+             Q 42 30 50 22
+             Q 56 16 62 22
+             Q 70 30 76 46
+             Q 100 58 124 46
+             Q 130 30 138 22
+             Q 144 16 150 22
+             Q 158 30 166 46
+             Q 182 62 182 92
+             L 182 168
+             Q 182 204 100 212
+             Q 18 204 18 168
+             L 18 92
+             Q 18 62 34 46 Z"/>
+    <clipPath id="bodyClip">
+      <use href="#bodyShape"/>
+    </clipPath>
+  </defs>
+
+  <!-- 1. Cream body fill -->
+  <use href="#bodyShape" fill="#F2EFE9"/>
+
+  <!-- 2. Teal forehead cap (clipped to body) -->
+  <g clip-path="url(#bodyClip)">
+    <path d="M -10 0 L 210 0 L 210 70 Q 100 92 -10 70 Z" fill="#A8CCC4"/>
+
+    <!-- 3. Wing: leaf shape in lower-left, with a rightward bulge in the middle -->
+    <path d="M 86 128
+             C 100 158 96 196 76 214
+             L 76 260
+             L -20 260
+             L -20 110
+             Q 24 122 86 128 Z"
+          fill="#A8CCC4"/>
+
+    <!-- Wing feather lines (3 sweeping curves following the wing's contour) -->
+    <g fill="none" stroke="#6F938C" stroke-width="2.4" stroke-linecap="round">
+      <path d="M 26 156 C 46 172 64 188 80 204"/>
+      <path d="M 28 182 C 48 198 64 208 82 216"/>
+      <path d="M 40 206 C 56 214 68 218 80 220"/>
+    </g>
+
+    <!-- Wing outline strokes: top arc + right dividing curve -->
+    <path d="M 18 128 Q 50 122 86 128 C 100 158 96 196 76 214"
+          fill="none" stroke="#6F938C" stroke-width="3.2"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- 4. Body outline (on top of all fills) -->
+  <use href="#bodyShape" fill="none" stroke="#6F938C" stroke-width="4"
+       stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- 5. Eyes -->
+  <g>
+    <circle cx="68"  cy="100" r="22" fill="#F2EFE9" stroke="#6F938C" stroke-width="3"/>
+    <circle cx="68"  cy="100" r="12" fill="#A8CCC4"/>
+    <circle cx="71"  cy="97"  r="3.4" fill="#2F3D3B"/>
+
+    <circle cx="132" cy="100" r="22" fill="#F2EFE9" stroke="#6F938C" stroke-width="3"/>
+    <circle cx="132" cy="100" r="12" fill="#A8CCC4"/>
+    <circle cx="135" cy="97"  r="3.4" fill="#2F3D3B"/>
+  </g>
+
+  <!-- 6. Diamond beak -->
+  <path d="M 100 122 L 110 134 L 100 146 L 90 134 Z"
+        fill="#EE8470" stroke="#D8634C" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- 7. Chest feathers (right side, three coral hooks + one gray) -->
+  <g fill="none" stroke-width="3" stroke-linecap="round">
+    <path stroke="#EE8470" d="M 112 154 q 5 7 10 0"/>
+    <path stroke="#EE8470" d="M 132 154 q 5 7 10 0"/>
+    <path stroke="#EE8470" d="M 122 174 q 5 7 10 0"/>
+    <path stroke="#9AA09F" d="M 122 194 q 5 7 10 0"/>
+  </g>
+</svg>

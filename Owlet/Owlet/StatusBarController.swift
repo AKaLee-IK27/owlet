@@ -26,13 +26,14 @@ final class StatusBarController {
 
     private func configureIcon() {
         guard let button = statusItem.button else { return }
-        // SF Symbol — no asset catalog needed. "text.bubble" reads as a small
-        // rewrite/chat hint; tinted via the system menu bar appearance.
-        if let image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: "Owlet") {
-            image.isTemplate = true
+        if let image = NSImage(named: "OwletGlyph") {
+            image.size = NSSize(width: 22, height: 22)
+            image.isTemplate = false
             button.image = image
+        } else if let fallback = NSImage(systemSymbolName: "bird", accessibilityDescription: "Owlet") {
+            fallback.isTemplate = true
+            button.image = fallback
         } else {
-            // Older macOS without that symbol — fall back to a wordmark.
             button.title = "Owlet"
         }
     }

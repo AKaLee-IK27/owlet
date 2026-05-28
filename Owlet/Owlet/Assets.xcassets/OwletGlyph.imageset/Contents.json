@@ -1,0 +1,8 @@
+{
+  "images" : [
+    { "idiom" : "mac", "filename" : "owlet-glyph.png",    "scale" : "1x" },
+    { "idiom" : "mac", "filename" : "owlet-glyph@2x.png", "scale" : "2x" },
+    { "idiom" : "mac", "filename" : "owlet-glyph@3x.png", "scale" : "3x" }
+  ],
+  "info" : { "version" : 1, "author" : "xcode" }
+}

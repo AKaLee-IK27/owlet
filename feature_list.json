@@ -1,0 +1,36 @@
+{
+  "features": [
+    {
+      "id": "feat-001",
+      "name": "App icon wired into AppIcon.appiconset",
+      "description": "Cropped owl PNG sliced into the 10 macOS icon sizes (16/32/128/256/512 @1x/@2x), Contents.json added, ASSETCATALOG_COMPILER_APPICON_NAME set in Owlet/project.yml. Built bundle has AppIcon.icns and CFBundleIconName=AppIcon.",
+      "dependencies": [],
+      "status": "done-uncommitted",
+      "evidence": "Build verified at /tmp/owlet-build/Build/Products/Debug/Owlet.app/Contents/Resources/AppIcon.icns (80,786 bytes). Working tree shows M Owlet/project.yml and ?? Owlet/Owlet/Assets.xcassets/. Next: commit."
+    },
+    {
+      "id": "feat-002",
+      "name": "Status-bar glyph swap (text.bubble → owl)",
+      "description": "Replace SF Symbol 'text.bubble' in Owlet/Owlet/StatusBarController.swift:31 with a template-rendered monochrome owl glyph so the menu-bar icon matches the app icon.",
+      "dependencies": ["feat-001"],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-003",
+      "name": "Configurable hotkey (v0.3)",
+      "description": "v0.2 hardcodes fn+Ctrl+R. Add a settings surface (likely menu-bar item) that lets the user pick the chord, persists via UserDefaults, and rebinds the CGEventTap. Spec lives at docs/superpowers/specs/ (to be created).",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-004",
+      "name": "README v0.3 refresh",
+      "description": "README currently says v0.2. Once feat-003 ships (or v0.3 is otherwise tagged), update version mentions, prerequisites, and the manual smoke test checklist.",
+      "dependencies": ["feat-003"],
+      "status": "not-started",
+      "evidence": ""
+    }
+  ]
+}
