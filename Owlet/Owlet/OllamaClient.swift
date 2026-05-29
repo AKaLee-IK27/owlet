@@ -33,10 +33,14 @@ final class OllamaClient {
         self.timeoutSeconds = timeoutSeconds
     }
 
-    func rewrite(_ input: String) async throws -> String {
+    func rewrite(_ input: String, context: String?) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
+        if let context, !context.isEmpty {
+            process.arguments = arguments + ["--context", context]
+        } else {
+            process.arguments = arguments
+        }
         var env = ProcessInfo.processInfo.environment
         for (k, v) in environment { env[k] = v }
         process.environment = env
@@ -118,7 +122,14 @@ final class OllamaClient {
 }
 
 protocol Rewriting: Sendable {
-    func rewrite(_ input: String) async throws -> String
+    func rewrite(_ input: String, context: String?) async throws -> String
+}
+
+extension Rewriting {
+    /// Convenience for the context-free fast path; keeps existing call sites working.
+    func rewrite(_ input: String) async throws -> String {
+        try await rewrite(input, context: nil)
+    }
 }
 
 extension OllamaClient: Rewriting {}

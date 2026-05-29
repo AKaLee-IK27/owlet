@@ -18,8 +18,10 @@ final class RewriterFlowTests: XCTestCase {
     final class MockRewriter: Rewriting, @unchecked Sendable {
         var response: Result<String, Error> = .success("rewritten")
         var callCount = 0
-        func rewrite(_ input: String) async throws -> String {
+        var lastContext: String? = nil
+        func rewrite(_ input: String, context: String?) async throws -> String {
             callCount += 1
+            lastContext = context
             return try response.get()
         }
     }
