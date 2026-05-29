@@ -1,6 +1,7 @@
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
 use std::time::Duration;
+use linkify::LinkFinder;
 
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
 const TIMEOUT_SECS: u64 = 30;
@@ -86,6 +87,23 @@ impl RewriteError {
             RewriteError::Parse(reason) => format!("ERROR: malformed Ollama response: {reason}"),
             RewriteError::Empty => "ERROR: empty rewrite output".into(),
         }
+    }
+}
+
+/// Choose a sentinel prefix that does not already occur in the input.
+/// Default is `OWLETLINKZ`; only bumped for pathological inputs. Tokens are `<prefix><index>Z`.
+fn pick_prefix(input: &str) -> String {
+    let base = "OWLETLINKZ";
+    if !input.contains(base) {
+        return base.to_string();
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("OWLETLINK{n}Z");
+        if !input.contains(&candidate) {
+            return candidate;
+        }
+        n += 1;
     }
 }
 
@@ -228,6 +246,17 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pick_prefix_default_when_no_collision() {
+        assert_eq!(pick_prefix("plain text https://ex.com"), "OWLETLINKZ");
+    }
+    #[test]
+    fn pick_prefix_bumps_on_collision() {
+        let p = pick_prefix("weird OWLETLINKZ in the text");
+        assert_ne!(p, "OWLETLINKZ");
+        assert!(!"weird OWLETLINKZ in the text".contains(&p));
+    }
 
     #[test]
     fn strip_think_empty() {
