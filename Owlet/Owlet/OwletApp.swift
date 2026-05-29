@@ -100,6 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nothing to do here — RewriterFlow.makeDefaultRewriter() reads
             // Preferences.shared.model lazily on each invocation.
             break
+        case .visionModel:
+            // Nothing to do here — VisionClient reads Preferences.shared.visionModel
+            // lazily on each invocation.
+            break
         }
     }
 

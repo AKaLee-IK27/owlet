@@ -10,7 +10,7 @@ import os.log
 /// `UserDefaults` suite via the designated initialiser.
 final class Preferences: @unchecked Sendable {
 
-    enum Change: String { case hotkey, model, launchAtLogin }
+    enum Change: String { case hotkey, model, launchAtLogin, visionModel }
 
     static let changedNotification = Notification.Name("OwletPreferencesChanged")
     static let shared = Preferences(defaults: .standard)
@@ -23,6 +23,7 @@ final class Preferences: @unchecked Sendable {
         static let hotkey         = "hotkey"
         static let model          = "model"
         static let launchAtLogin  = "launchAtLogin"
+        static let visionModel    = "visionModel"
     }
 
     init(defaults: UserDefaults) {
@@ -69,6 +70,14 @@ final class Preferences: @unchecked Sendable {
         set {
             defaults.set(newValue, forKey: Key.launchAtLogin)
             post(.launchAtLogin)
+        }
+    }
+
+    var visionModel: String {
+        get { defaults.string(forKey: Key.visionModel) ?? "qwen2.5-vl:7b" }
+        set {
+            defaults.set(newValue, forKey: Key.visionModel)
+            post(.visionModel)
         }
     }
 
