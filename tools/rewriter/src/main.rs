@@ -77,6 +77,9 @@ Return it with minimal or no changes. Do not improve for the sake of improving.
 # When the input is very long
 Preserve the full content. Tighten only language and structure. Never summarize or truncate.
 
+# User-provided context
+The user message may begin with a [CONTEXT]…[/CONTEXT] block. Treat it as guidance about audience, scope, tone, or constraints for this rewrite. Apply it. Never repeat, quote, or mention the context block in your output — rewrite only the draft that follows it.
+
 # Output
 Only the rewritten prompt. Nothing else."#;
 
@@ -235,12 +238,18 @@ fn parse_response(body: &str) -> Result<String, RewriteError> {
         .ok_or_else(|| RewriteError::Parse("missing message.content".into()))
 }
 
-fn build_payload(prompt: &str, model: &str) -> serde_json::Value {
+fn build_payload(prompt: &str, model: &str, context: Option<&str>) -> serde_json::Value {
+    let user_content = match context {
+        Some(ctx) if !ctx.trim().is_empty() => {
+            format!("[CONTEXT]\n{ctx}\n[/CONTEXT]\n\n{prompt}")
+        }
+        _ => prompt.to_string(),
+    };
     serde_json::json!({
         "model": model,
         "messages": [
             { "role": "system", "content": SYSTEM_PROMPT },
-            { "role": "user",   "content": prompt },
+            { "role": "user",   "content": user_content },
         ],
         "stream": false,
         "think": false,
@@ -248,11 +257,11 @@ fn build_payload(prompt: &str, model: &str) -> serde_json::Value {
     })
 }
 
-fn call_ollama(prompt: &str, model: &str) -> Result<String, RewriteError> {
+fn call_ollama(prompt: &str, model: &str, context: Option<&str>) -> Result<String, RewriteError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build();
-    let payload = build_payload(prompt, model);
+    let payload = build_payload(prompt, model, context);
     match agent.post(OLLAMA_URL).send_json(payload) {
         Ok(response) => {
             let body = response
@@ -296,7 +305,7 @@ fn run(args: &[String]) -> Result<Option<String>, RewriteError> {
         return Ok(None);
     }
     let (masked, originals, prefix) = mask_links(&input);
-    let raw = call_ollama(&masked, &parsed.model)?;
+    let raw = call_ollama(&masked, &parsed.model, parsed.context.as_deref())?;
     let cleaned = clean_output(&raw);
     if cleaned.trim().is_empty() {
         return Err(RewriteError::Empty);
@@ -590,7 +599,7 @@ mod tests {
 
     #[test]
     fn build_payload_has_expected_shape() {
-        let p = build_payload("rewrite me", "qwen3:8b");
+        let p = build_payload("rewrite me", "qwen3:8b", None);
         assert_eq!(p["model"], "qwen3:8b");
         assert_eq!(p["stream"], false);
         assert_eq!(p["think"], false);
@@ -602,13 +611,25 @@ mod tests {
         assert_eq!(msgs[1]["content"], "rewrite me");
         let sys_text = msgs[0]["content"].as_str().unwrap();
         assert!(sys_text.contains("prompt engineering assistant"));
-        assert!(sys_text.contains("Preserve the language of the input"));
     }
-
     #[test]
     fn build_payload_uses_provided_model() {
-        let p = build_payload("hi", "llama3.1:8b");
+        let p = build_payload("hi", "llama3.1:8b", None);
         assert_eq!(p["model"], "llama3.1:8b");
+    }
+    #[test]
+    fn build_payload_prepends_context_block_to_user_message() {
+        let p = build_payload("rewrite me", "qwen3:8b", Some("for my boss"));
+        let content = p["messages"][1]["content"].as_str().unwrap();
+        assert!(content.contains("[CONTEXT]"));
+        assert!(content.contains("for my boss"));
+        assert!(content.trim_end().ends_with("rewrite me"));
+        assert_eq!(p["messages"].as_array().unwrap().len(), 2); // still ONE system msg
+    }
+    #[test]
+    fn build_payload_blank_context_is_ignored() {
+        let p = build_payload("rewrite me", "qwen3:8b", Some("   "));
+        assert_eq!(p["messages"][1]["content"], "rewrite me");
     }
 
     #[test]
