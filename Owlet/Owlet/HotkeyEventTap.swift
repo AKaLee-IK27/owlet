@@ -18,18 +18,25 @@ final class HotkeyEventTap {
     private let chord: Chord
     private let onHotkey: @Sendable () -> Void
     private let optionHoldDetector: OptionHoldDetector?
+    private let onDoubleClick: (@Sendable () -> Void)?
+    private let lock = NSLock()
+    private var lastOptionKeyDownTime: Date?
+    private let doubleClickThreshold: TimeInterval = 0.4
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
 
     /// - Parameters:
     ///   - chord: The chord this tap watches for. Read once at construction.
     ///   - onHotkey: Dispatched to a background queue when the chord fires.
     ///   - optionHoldDetector: Optional detector for Option hold-to-reveal.
+    ///   - onDoubleClick: Optional handler for double-click Option (screenshot flow).
     init(chord: Chord,
          onHotkey: @escaping @Sendable () -> Void,
-         optionHoldDetector: OptionHoldDetector? = nil) {
+         optionHoldDetector: OptionHoldDetector? = nil,
+         onDoubleClick: (@Sendable () -> Void)? = nil) {
         self.chord = chord
         self.onHotkey = onHotkey
         self.optionHoldDetector = optionHoldDetector
+        self.onDoubleClick = onDoubleClick
     }
 
     @discardableResult
@@ -78,6 +85,9 @@ final class HotkeyEventTap {
         self.tap = nil
         self.runLoopSource = nil
         self.optionHoldDetector?.cancel()
+        lock.lock()
+        lastOptionKeyDownTime = nil
+        lock.unlock()
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -104,23 +114,53 @@ final class HotkeyEventTap {
             // Chord match takes priority — cancel hold detector and fire rewrite.
             if ChordMatcher.matches(chord: chord, key: keyName, flags: flags) {
                 optionHoldDetector?.cancel()
+                lock.lock()
+                lastOptionKeyDownTime = nil
+                lock.unlock()
                 DispatchQueue.global(qos: .userInitiated).async { [onHotkey] in
                     onHotkey()
                 }
                 return nil  // consume the event
             }
 
-            // Option-only keyDown → start hold detection.
-            if let detector = optionHoldDetector {
-                detector.handleKeyDown(flags: flags)
+            // Option-only keyDown → check for double-click.
+            if flags.alt && !flags.fn && !flags.ctrl && !flags.cmd && !flags.shift {
+                lock.lock()
+                let now = Date()
+                if let lastTime = lastOptionKeyDownTime, now.timeIntervalSince(lastTime) < doubleClickThreshold {
+                    // Double-click detected
+                    lastOptionKeyDownTime = nil
+                    lock.unlock()
+                    optionHoldDetector?.cancel()
+                    if let handler = onDoubleClick {
+                        DispatchQueue.global(qos: .userInitiated).async { handler() }
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+                lastOptionKeyDownTime = now
+                lock.unlock()
+
+                // Start hold detection.
+                if let detector = optionHoldDetector {
+                    detector.handleKeyDown(flags: flags)
+                }
+            } else {
+                // Non-Option keyDown — reset double-click tracking.
+                lock.lock()
+                lastOptionKeyDownTime = nil
+                lock.unlock()
             }
             return Unmanaged.passUnretained(event)
         }
 
         if type == .keyUp {
-            // Option keyUp → cancel hold detection.
-            if flags.alt, let detector = optionHoldDetector {
-                detector.handleOptionKeyUp()
+            if flags.alt {
+                lock.lock()
+                lastOptionKeyDownTime = nil
+                lock.unlock()
+                if let detector = optionHoldDetector {
+                    detector.handleOptionKeyUp()
+                }
             }
             return Unmanaged.passUnretained(event)
         }
