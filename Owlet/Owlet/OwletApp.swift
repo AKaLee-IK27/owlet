@@ -117,7 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await flow.start()
                 }
             },
-            optionHoldDetector: optionHoldDetector
+            optionHoldDetector: optionHoldDetector,
+            onDoubleClick: {
+                Task { @MainActor in
+                    let flow = RewriterFlow()
+                    await flow.startFromScreenshot()
+                }
+            }
         )
         switch newTap.start() {
         case .success:
@@ -156,7 +162,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await flow.start()
                 }
             },
-            optionHoldDetector: detector
+            optionHoldDetector: detector,
+            onDoubleClick: {
+                Task { @MainActor in
+                    let flow = RewriterFlow()
+                    await flow.startFromScreenshot()
+                }
+            }
         )
         switch rewriterTap.start() {
         case .success:
