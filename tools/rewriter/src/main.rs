@@ -90,22 +90,34 @@ impl RewriteError {
     }
 }
 
-/// Re-append any original link not already literally present in `text`, label-free
-/// (a hardcoded header would break language preservation), deduped. Each on its own
-/// line after one blank line.
-fn append_dropped(text: &str, originals: &[String]) -> String {
+/// Re-append any original link whose token was DROPPED by the model (absent from
+/// `model_output`, the cleaned pre-restore text). Detection is by exact token
+/// presence — the same notion `restore_links` uses — so it never guesses at URL
+/// string shapes. Label-free (a header would break language preservation) and
+/// deduped by URL value (a URL that survived via another token instance is not
+/// re-appended). Each appended link on its own line after one blank line.
+fn append_dropped(restored: &str, model_output: &str, originals: &[String], prefix: &str) -> String {
+    // URLs that survived via at least one surviving token instance.
+    let mut survived: Vec<&str> = Vec::new();
+    for (i, original) in originals.iter().enumerate() {
+        if model_output.contains(&format!("{prefix}{i}Z")) {
+            survived.push(original.as_str());
+        }
+    }
     let mut dropped: Vec<&str> = Vec::new();
-    for original in originals {
-        let present_in_text = text.contains(original.as_str());
-        let already_queued = dropped.iter().any(|d| *d == original.as_str());
-        if !present_in_text && !already_queued {
-            dropped.push(original.as_str());
+    for (i, original) in originals.iter().enumerate() {
+        if model_output.contains(&format!("{prefix}{i}Z")) {
+            continue; // token survived → restored inline
+        }
+        let url = original.as_str();
+        if !survived.contains(&url) && !dropped.contains(&url) {
+            dropped.push(url);
         }
     }
     if dropped.is_empty() {
-        return text.to_string();
+        return restored.to_string();
     }
-    let mut out = text.trim_end().to_string();
+    let mut out = restored.trim_end().to_string();
     out.push_str("\n\n");
     out.push_str(&dropped.join("\n"));
     out
@@ -136,7 +148,8 @@ fn mask_links(input: &str) -> (String, Vec<String>, String) {
     let mut last = 0;
     for link in &links {
         masked.push_str(&input[last..link.start()]);
-        masked.push_str(&format!("{}{}Z", prefix, originals.len()));
+        let idx = originals.len();
+        masked.push_str(&format!("{prefix}{idx}Z"));
         originals.push(link.as_str().to_string());
         last = link.end();
     }
@@ -276,7 +289,7 @@ fn run(args: &[String]) -> Result<Option<String>, RewriteError> {
         return Err(RewriteError::Empty);
     }
     let restored = restore_links(&cleaned, &originals, &prefix);
-    let final_text = append_dropped(&restored, &originals);
+    let final_text = append_dropped(&restored, &cleaned, &originals, &prefix);
     Ok(Some(final_text))
 }
 
@@ -305,28 +318,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn append_dropped_noop_when_all_present() {
+    fn append_dropped_noop_when_token_present() {
         let originals = vec!["https://kept.io".to_string()];
-        let out = append_dropped("text with https://kept.io inside", &originals);
+        let out = append_dropped("text with https://kept.io inside",
+                                 "text with OWLETLINKZ0Z inside", &originals, "OWLETLINKZ");
         assert_eq!(out, "text with https://kept.io inside");
     }
+
     #[test]
     fn append_dropped_appends_missing_label_free() {
         let originals = vec!["https://gone.com".to_string()];
-        let out = append_dropped("rewritten text", &originals);
+        let out = append_dropped("rewritten text", "rewritten text", &originals, "OWLETLINKZ");
         assert_eq!(out, "rewritten text\n\nhttps://gone.com");
     }
-    #[test]
-    fn append_dropped_dedupes_repeated_url() {
-        let originals = vec!["https://dup.io".to_string(), "https://dup.io".to_string()];
-        let out = append_dropped("kept https://dup.io once", &originals);
-        assert_eq!(out, "kept https://dup.io once");
-    }
+
     #[test]
     fn append_dropped_multiple_missing_each_on_own_line() {
         let originals = vec!["https://a.com".to_string(), "https://b.com".to_string()];
-        let out = append_dropped("nothing here", &originals);
+        let out = append_dropped("nothing here", "nothing here", &originals, "OWLETLINKZ");
         assert_eq!(out, "nothing here\n\nhttps://a.com\nhttps://b.com");
+    }
+
+    #[test]
+    fn append_dropped_substring_url_still_appended() {
+        // Short URL is a substring of a surviving long URL, and the short one was dropped.
+        let originals = vec!["https://a.com".to_string(), "https://a.com/docs".to_string()];
+        // Model kept token 1 (long), dropped token 0 (short).
+        let out = append_dropped("only https://a.com/docs survived",
+                                 "only OWLETLINKZ1Z survived", &originals, "OWLETLINKZ");
+        assert_eq!(out, "only https://a.com/docs survived\n\nhttps://a.com");
+    }
+
+    #[test]
+    fn append_dropped_dedupes_repeated_url_when_one_survives() {
+        // Same URL twice (tokens 0,1). Model kept token 0, dropped token 1 — do NOT duplicate.
+        let originals = vec!["https://dup.io".to_string(), "https://dup.io".to_string()];
+        let out = append_dropped("kept https://dup.io once",
+                                 "kept OWLETLINKZ0Z once", &originals, "OWLETLINKZ");
+        assert_eq!(out, "kept https://dup.io once");
+    }
+
+    #[test]
+    fn append_dropped_token_self_delimiting_two_digit_index() {
+        // Token OWLETLINKZ1Z must not be considered present just because the output
+        // contains OWLETLINKZ10Z (trailing Z makes tokens self-delimiting).
+        let originals: Vec<String> = (0..=10).map(|i| format!("https://e.com/{i}")).collect();
+        let out = append_dropped("see https://e.com/10", "see OWLETLINKZ10Z", &originals, "OWLETLINKZ");
+        let appended: Vec<&str> = out.split("\n\n").nth(1).unwrap_or("").lines().collect();
+        assert!(appended.contains(&"https://e.com/1"));    // index 1 dropped → appended
+        assert!(!appended.contains(&"https://e.com/10"));  // index 10 survived → not appended
     }
 
     #[test]
@@ -383,6 +423,15 @@ mod tests {
         let p = pick_prefix("weird OWLETLINKZ in the text");
         assert_ne!(p, "OWLETLINKZ");
         assert!(!"weird OWLETLINKZ in the text".contains(&p));
+    }
+
+    #[test]
+    fn mask_restore_round_trip_with_bumped_prefix() {
+        let input = "OWLETLINKZ is in the text, see https://ex.com";
+        let (masked, originals, prefix) = mask_links(input);
+        assert_ne!(prefix, "OWLETLINKZ");
+        let restored = restore_links(&masked, &originals, &prefix);
+        assert_eq!(restored, input);
     }
 
     #[test]
