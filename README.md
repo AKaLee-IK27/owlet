@@ -72,14 +72,15 @@ Press `Cmd+,` (or pick "Settings…" from the menu-bar icon) to change the hotke
 
 - **Change the model:** open Settings (`Cmd+,`) and pick a locally-pulled Ollama model from the dropdown. No rebuild required.
 - **Change the hotkey:** open Settings (`Cmd+,`), click Record, press your preferred chord. Changes take effect immediately.
-- **Change the prompt:** edit `const SYSTEM_PROMPT` in `tools/rewriter/src/main.rs`, then re-run `./install.sh`. The shipped default is tuned for **improving prompts** written for a chat AI (Claude / GPT / Gemini) — that's also why the popup is titled "Improve prompt" and the mode chips read Clarify / Add context / Structured / Examples. Swap in your own prompt for general rewriting.
+- **Change the prompt:** edit `const SYSTEM_PROMPT` in `tools/rewriter/src/main.rs`, then re-run `./install.sh`. The shipped default is tuned for **improving prompts** written for a chat AI (Claude / GPT / Gemini) — that's also why the popup is titled "Improve prompt". Swap in your own prompt for general rewriting.
+- **Add context to a rewrite:** in the result popup, click **Add context**, type a note (e.g. "for my boss", "keep it under two sentences"), and press **Refine** to re-run the rewrite with that guidance (feat-008). URLs and email addresses in the draft are preserved verbatim (feat-007).
 - **Change the vision model:** open Settings (`Cmd+,`) and pick a locally-pulled vision-capable model for the screenshot flow (default `llava:7b`).
 
 ## Known limitations
 
 - **Screenshot rewrite is preview-quality.** feat-006 (double-tap Shift) is implemented and unit-tested, but the end-to-end path — region selection on a *secondary* display, and the captured PNG resolving to the correct region at full Retina resolution — has not been fully verified by hand on a multi-monitor setup. Treat it as preview.
 - **Deprecated capture API.** `ScreenshotCapturer` uses `CGDisplayCreateImage`, which is obsoleted in the macOS 15 SDK (it compiles/runs today only against an older SDK). A migration to `SCScreenshotManager` (ScreenCaptureKit) is tracked as a follow-up.
-- **Mode chips are visual-only.** The Clarify / Add context / Structured / Examples / Compact chips in the popup change the active selection but do not yet re-trigger Ollama — the rewriter has no `--mode` flag.
+- **Only the "Add context" mode is wired.** v0.4 ships the **Add context** chip (feat-008), which re-runs the rewrite with a free-text note. The other preset modes (Clarify / Structured / Examples / Compact) are not yet implemented — the rewriter has no `--mode` flag — so they're hidden for now; the `ImproveMode` scaffolding remains for that future work.
 - **Brand fonts degrade silently.** Fraunces and Be Vietnam Pro are installed by `install.sh` via Homebrew casks. If they're missing, the popup falls back to the system font (SF Pro) with no runtime warning.
 
 ## Project layout

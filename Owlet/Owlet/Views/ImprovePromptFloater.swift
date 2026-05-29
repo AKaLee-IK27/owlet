@@ -197,9 +197,16 @@ struct ImprovePromptFloater: View {
         .padding(.leading, -6)
     }
 
+    /// Upper bound on the context note — it rides a process argument, so keep it
+    /// sane. A few hundred chars covers real guidance ("for my boss, keep it short").
+    private static let maxContextChars = 280
+
     private var contextField: some View {
         HStack(spacing: 6) {
-            TextField("Add context for this rewrite…", text: $contextText)
+            TextField("Add context for this rewrite…", text: Binding(
+                get: { contextText },
+                set: { contextText = String($0.prefix(Self.maxContextChars)) }
+            ))
                 .textFieldStyle(.plain)
                 .font(OwletDesign.ui(size: 12, weight: .regular))
                 .foregroundStyle(OwletDesign.fg)
