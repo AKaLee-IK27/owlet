@@ -118,6 +118,44 @@ final class RewriterFlowTests: XCTestCase {
     }
 
     @MainActor
+    func test_refine_rewritesStoredText_withContext() async {
+        let ax = MockAX()
+        let bogus = unsafeBitCast(0, to: AXUIElement.self)
+        ax.outcome = .captured(SelectionSnapshot(text: "the cat sat", sourceAppBundleID: "t",
+                                        focusedElement: bogus, captureMethod: .ax))
+        let rewriter = MockRewriter()
+        rewriter.response = .success("the dog sat")
+        let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
+        await flow.start()                       // stores "the cat sat"
+        ax.outcome = .empty                      // selection now gone — refine must NOT re-capture
+        rewriter.response = .success("the formal dog sat")
+        await flow.refine(context: "make it formal")
+        XCTAssertEqual(rewriter.lastContext, "make it formal")
+        if case .result(let original, let new, _, _, _) = flow.lastObservedState {
+            XCTAssertEqual(original, "the cat sat", "diff baseline stays the original source")
+            XCTAssertEqual(new, "the formal dog sat")
+        } else { XCTFail("expected .result, got \(String(describing: flow.lastObservedState))") }
+    }
+
+    @MainActor
+    func test_retry_reusesStoredText_notReCapture() async {
+        let ax = MockAX()
+        let bogus = unsafeBitCast(0, to: AXUIElement.self)
+        ax.outcome = .captured(SelectionSnapshot(text: "hello world", sourceAppBundleID: "t",
+                                        focusedElement: bogus, captureMethod: .ax))
+        let rewriter = MockRewriter()
+        rewriter.response = .success("greetings world")
+        let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
+        await flow.start()
+        ax.outcome = .empty                      // selection gone
+        await flow.retry()
+        XCTAssertNil(rewriter.lastContext, "retry sends no context")
+        if case .result = flow.lastObservedState {} else {
+            XCTFail("retry should re-run from stored text, got \(String(describing: flow.lastObservedState))")
+        }
+    }
+
+    @MainActor
     func test_capture_withNilFocus_clipboardOnly() async {
         // Simulates an Electron app: AX gives no focus, but Hammerspoon
         // already put the selection on the clipboard.

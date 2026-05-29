@@ -15,6 +15,8 @@ final class RewriterFlow {
     private(set) var lastObservedState: PopupState? = nil
 
     private var _currentFocusedElement: AXUIElement?
+    private var lastSourceText: String = ""
+    private var lastCaptureMethod: SelectionSnapshot.CaptureMethod = .ax
 
     init(ax: AXBridging = AXBridgeAdapter(),
          rewriter: Rewriting? = nil,
@@ -63,26 +65,40 @@ final class RewriterFlow {
             setState(.error(.selectionEmpty)); return
         }
         _currentFocusedElement = snap.focusedElement
-        if snap.text.count > Self.inputHardLimit {
-            setState(.error(.inputTooLong(charCount: snap.text.count)))
+        lastSourceText = snap.text
+        lastCaptureMethod = snap.captureMethod
+        await performRewrite(source: snap.text, captureMethod: snap.captureMethod, context: nil)
+    }
+
+    /// Re-run the rewrite on already-captured text (refine after edit).
+    func refine(context: String) async {
+        await performRewrite(source: lastSourceText, captureMethod: lastCaptureMethod, context: context)
+    }
+
+    /// "Try again" — re-run from stored text, never re-capturing (the
+    /// selection may be gone once the popup has focus).
+    func retry() async {
+        await performRewrite(source: lastSourceText, captureMethod: lastCaptureMethod, context: nil)
+    }
+
+    private func performRewrite(source: String,
+                                captureMethod: SelectionSnapshot.CaptureMethod,
+                                context: String?) async {
+        if source.count > Self.inputHardLimit {
+            setState(.error(.inputTooLong(charCount: source.count)))
             return
         }
+        let isLong = source.count > Self.inputSoftWarn
+        setState(.loading(sourceText: source, isLong: isLong, captureMethod: captureMethod))
 
-        let isLong = snap.text.count > Self.inputSoftWarn
-        setState(.loading(sourceText: snap.text, isLong: isLong, captureMethod: snap.captureMethod))
-
-        // 2) Rewrite
         let rewrittenRaw: String
         do {
-            rewrittenRaw = try await rewriter.rewrite(snap.text)
+            rewrittenRaw = try await rewriter.rewrite(source, context: context)
         } catch OllamaClient.Failure.timeout {
-            setState(.error(.timeout))
-            return
+            setState(.error(.timeout)); return
         } catch OllamaClient.Failure.emptyOutput {
-            setState(.error(.emptyOutput))
-            return
+            setState(.error(.emptyOutput)); return
         } catch OllamaClient.Failure.backendError(let msg) {
-            // Heuristic: stderr text containing "Connection" maps to ollamaDown.
             if msg.localizedCaseInsensitiveContains("Connection") {
                 setState(.error(.ollamaDown))
             } else {
@@ -90,32 +106,27 @@ final class RewriterFlow {
             }
             return
         } catch OllamaClient.Failure.launchFailed(let msg) {
-            setState(.error(.backendUnavailable(message: msg)))
-            return
+            setState(.error(.backendUnavailable(message: msg))); return
         } catch {
-            setState(.error(.backendUnavailable(message: "\(error)")))
-            return
+            setState(.error(.backendUnavailable(message: "\(error)"))); return
         }
 
         let rewritten = CleanOutput.clean(rewrittenRaw)
         if rewritten.isEmpty {
-            setState(.error(.emptyOutput))
-            return
+            setState(.error(.emptyOutput)); return
         }
-        if rewritten == snap.text.trimmingCharacters(in: .whitespacesAndNewlines) {
-            setState(.empty(text: rewritten))
-            return
+        if rewritten == source.trimmingCharacters(in: .whitespacesAndNewlines) {
+            setState(.empty(text: rewritten)); return
         }
 
-        // 3) Diff
-        let diff = DiffEngine.diff(snap.text, rewritten)
+        let diff = DiffEngine.diff(source, rewritten)
         let collapse = DiffResult.shouldCollapse(removedRatio: diff.removedRatio)
         let canReplace = rewritten.count <= Self.outputHardLimit
-        setState(.result(original: snap.text,
-                          rewritten: rewritten,
-                          segments: collapse ? nil : diff.segments,
-                          canReplace: canReplace,
-                          captureMethod: snap.captureMethod))
+        setState(.result(original: source,
+                         rewritten: rewritten,
+                         segments: collapse ? nil : diff.segments,
+                         canReplace: canReplace,
+                         captureMethod: captureMethod))
     }
 
     func startFromScreenshot() async {
@@ -168,7 +179,8 @@ final class RewriterFlow {
                     onReplace: {},
                     onCopy: {},
                     onCancel: { [weak self] in self?.handleCancel() },
-                    onRetry: { Task { [weak self] in await self?.startFromScreenshot() } }
+                    onRetry: { Task { [weak self] in await self?.startFromScreenshot() } },
+                    onRefine: { _ in }
                 ),
                 anchorRect: nil,
                 width: OwletDesign.Floater.width
@@ -180,7 +192,8 @@ final class RewriterFlow {
                     onReplace: { [weak self] in self?.handleReplace() },
                     onCopy:    { [weak self] in self?.handleCopy() },
                     onCancel:  { [weak self] in self?.handleCancel() },
-                    onRetry:   { Task { [weak self] in await self?.start() } }
+                    onRetry:   { Task { [weak self] in await self?.retry() } },
+                    onRefine:  { ctx in Task { [weak self] in await self?.refine(context: ctx) } }
                 ),
                 anchorRect: Self.anchorRect(for: _currentFocusedElement),
                 width: OwletDesign.Floater.width
