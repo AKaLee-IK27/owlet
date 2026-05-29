@@ -269,12 +269,15 @@ fn run(args: &[String]) -> Result<Option<String>, RewriteError> {
     if input.trim().is_empty() {
         return Ok(None);
     }
-    let raw = call_ollama(&input, &model)?;
+    let (masked, originals, prefix) = mask_links(&input);
+    let raw = call_ollama(&masked, &model)?;
     let cleaned = clean_output(&raw);
     if cleaned.trim().is_empty() {
         return Err(RewriteError::Empty);
     }
-    Ok(Some(cleaned))
+    let restored = restore_links(&cleaned, &originals, &prefix);
+    let final_text = append_dropped(&restored, &originals);
+    Ok(Some(final_text))
 }
 
 fn main() -> ExitCode {
