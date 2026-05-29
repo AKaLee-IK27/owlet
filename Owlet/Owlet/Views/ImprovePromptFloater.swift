@@ -30,9 +30,11 @@ struct ImprovePromptFloater: View {
     let onCopy: () -> Void
     let onCancel: () -> Void
     let onRetry: () -> Void
+    let onRefine: (String) -> Void
 
-    /// Active chip — visual only until rewrite modes are wired in the backend.
-    @State private var activeMode: ImproveMode = .clarify
+    @State private var showContextField = false
+    @State private var contextText = ""
+    @FocusState private var contextFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -41,7 +43,10 @@ struct ImprovePromptFloater: View {
             output.padding(.bottom, 12)
 
             if case .result(_, _, _, _, _) = state {
-                modeChips.padding(.bottom, 12)
+                modeChips.padding(.bottom, showContextField ? 8 : 12)
+                if showContextField {
+                    contextField.padding(.bottom, 12)
+                }
             }
 
             if shouldShowActions {
@@ -175,20 +180,53 @@ struct ImprovePromptFloater: View {
         )
     }
 
-    // MARK: Mode chips — visual only for now (no backend wiring yet)
+    // MARK: Mode chips — v0.4 surfaces only "Add context" (others await --mode).
     private var modeChips: some View {
         HStack(spacing: 2) {
-            ForEach(ImproveMode.allCases) { m in
-                ModeChip(mode: m, active: m == activeMode) {
-                    activeMode = m
-                    // TODO(v0.5): re-trigger rewrite with this mode's
-                    // SYSTEM_PROMPT. owlet-rewriter needs a --mode <name>
-                    // flag first, and OllamaClient + Rewriting need a `mode` arg.
+            ModeChip(mode: .context, active: showContextField) {
+                showContextField.toggle()
+                if showContextField {
+                    // Defer so the field exists before we focus it.
+                    DispatchQueue.main.async { contextFocused = true }
+                } else {
+                    contextText = ""
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(.leading, -6)
+    }
+
+    private var contextField: some View {
+        HStack(spacing: 6) {
+            TextField("Add context for this rewrite…", text: $contextText)
+                .textFieldStyle(.plain)
+                .font(OwletDesign.ui(size: 12, weight: .regular))
+                .foregroundStyle(OwletDesign.fg)
+                .focused($contextFocused)
+                .onSubmit(submitRefine)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(OwletDesign.fg.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(OwletDesign.hairline, lineWidth: 1)
+                )
+            PrimaryButton(
+                label: "Refine",
+                enabled: !contextText.trimmingCharacters(in: .whitespaces).isEmpty,
+                action: submitRefine
+            )
+        }
+    }
+
+    private func submitRefine() {
+        let trimmed = contextText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        onRefine(trimmed)
     }
 
     // MARK: Actions — Replace · Try again · spacer · Copy
@@ -584,7 +622,7 @@ private struct FlowText: View {
             segments: nil,
             canReplace: true,
             captureMethod: .ax),
-        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {}, onRefine: { _ in })
     .padding(40)
     .background(OwletDesign.Sage.s800)
 }
@@ -592,7 +630,7 @@ private struct FlowText: View {
 #Preview("loading") {
     ImprovePromptFloater(
         state: .loading(sourceText: "write me a blog post about AI", isLong: false, captureMethod: .ax),
-        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {}, onRefine: { _ in })
     .padding(40)
     .background(OwletDesign.Sage.s800)
 }
@@ -605,7 +643,7 @@ private struct FlowText: View {
             segments: nil,
             canReplace: true,
             captureMethod: .clipboardFallback),
-        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {}, onRefine: { _ in })
     .padding(40)
     .background(OwletDesign.Sage.s800)
 }
@@ -627,7 +665,7 @@ private struct FlowText: View {
             ],
             canReplace: true,
             captureMethod: .ax),
-        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {}, onRefine: { _ in })
     .padding(40)
     .background(OwletDesign.Sage.s800)
 }
@@ -635,7 +673,7 @@ private struct FlowText: View {
 #Preview("error") {
     ImprovePromptFloater(
         state: .error(.ollamaDown),
-        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {})
+        onReplace: {}, onCopy: {}, onCancel: {}, onRetry: {}, onRefine: { _ in })
     .padding(40)
     .background(OwletDesign.Sage.s800)
 }
