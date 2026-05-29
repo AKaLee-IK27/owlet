@@ -21,8 +21,20 @@ final class HotkeyEventTap {
     private let onDoubleClick: (@Sendable () -> Void)?
     private let lock = NSLock()
     private var lastShiftKeyDownTime: Date?
+    /// Last-seen modifier state, used to detect absent→present / present→absent
+    /// transitions on `flagsChanged` events (bare modifier keys never emit keyDown).
+    private var previousFlags = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: false, shift: false)
     private let doubleClickThreshold: TimeInterval = 0.4
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
+
+    /// Action decided from a modifier-key transition. Kept separate from the
+    /// CGEvent layer so the transition logic is unit-testable.
+    enum ModifierAction: Equatable {
+        case none
+        case doubleClickShift
+        case startOptionHold
+        case cancelOptionHold
+    }
 
     /// - Parameters:
     ///   - chord: The chord this tap watches for. Read once at construction.
@@ -44,6 +56,7 @@ final class HotkeyEventTap {
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue) |
             (1 << CGEventType.tapDisabledByTimeout.rawValue) |
             (1 << CGEventType.tapDisabledByUserInput.rawValue)
 
@@ -87,6 +100,7 @@ final class HotkeyEventTap {
         self.optionHoldDetector?.cancel()
         lock.lock()
         lastShiftKeyDownTime = nil
+        previousFlags = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: false, shift: false)
         lock.unlock()
     }
 
@@ -107,6 +121,25 @@ final class HotkeyEventTap {
             shift: event.flags.contains(.maskShift)
         )
 
+        // Bare modifier keys (Shift, Option) emit flagsChanged, never keyDown/keyUp.
+        // Double-click-Shift and Option-hold detection both live here.
+        if type == .flagsChanged {
+            switch decideModifierAction(flags: flags, now: Date()) {
+            case .doubleClickShift:
+                optionHoldDetector?.cancel()
+                if let handler = onDoubleClick {
+                    DispatchQueue.global(qos: .userInitiated).async { handler() }
+                }
+            case .startOptionHold:
+                optionHoldDetector?.handleKeyDown(flags: flags)
+            case .cancelOptionHold:
+                optionHoldDetector?.cancel()
+            case .none:
+                break
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             let keyName = KeyCodeMap.name(for: Int(keyCode)) ?? ""
@@ -123,46 +156,42 @@ final class HotkeyEventTap {
                 return nil  // consume the event
             }
 
-            // Shift-only keyDown → check for double-click (screenshot flow).
-            if flags.shift && !flags.fn && !flags.ctrl && !flags.cmd && !flags.alt {
-                lock.lock()
-                let now = Date()
-                if let lastTime = lastShiftKeyDownTime, now.timeIntervalSince(lastTime) < doubleClickThreshold {
-                    // Double-click detected
-                    lastShiftKeyDownTime = nil
-                    lock.unlock()
-                    optionHoldDetector?.cancel()
-                    if let handler = onDoubleClick {
-                        DispatchQueue.global(qos: .userInitiated).async { handler() }
-                    }
-                    return Unmanaged.passUnretained(event)
-                }
-                lastShiftKeyDownTime = now
-                lock.unlock()
-            }
-
-            // Option-only keyDown → start hold detection.
-            if flags.alt && !flags.fn && !flags.ctrl && !flags.cmd && !flags.shift {
-                if let detector = optionHoldDetector {
-                    detector.handleKeyDown(flags: flags)
-                }
-            }
-
-            return Unmanaged.passUnretained(event)
-        }
-
-        if type == .keyUp {
-            if flags.shift {
-                lock.lock()
-                lastShiftKeyDownTime = nil
-                lock.unlock()
-            }
-            if flags.alt, let detector = optionHoldDetector {
-                detector.handleOptionKeyUp()
-            }
+            // Any real key pressed means Option (if held) is no longer held in
+            // isolation, so the hold-to-reveal must be cancelled.
+            optionHoldDetector?.cancel()
             return Unmanaged.passUnretained(event)
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    /// Decide what a modifier transition means, given the current flags and the
+    /// previously-seen flags. Detects:
+    ///   - double-tap of Shift-alone within `doubleClickThreshold`
+    ///   - Option-alone pressed (start hold) / released (cancel hold)
+    /// Pure with respect to CGEvent — exercised directly by unit tests.
+    func decideModifierAction(flags: ModifierFlags, now: Date) -> ModifierAction {
+        lock.lock()
+        defer { lock.unlock() }
+        let prev = previousFlags
+        previousFlags = flags
+
+        let shiftPressed = !prev.shift && flags.shift
+        let shiftOnly = flags.shift && !flags.fn && !flags.ctrl && !flags.cmd && !flags.alt
+        if shiftPressed && shiftOnly {
+            if let last = lastShiftKeyDownTime, now.timeIntervalSince(last) < doubleClickThreshold {
+                lastShiftKeyDownTime = nil
+                return .doubleClickShift
+            }
+            lastShiftKeyDownTime = now
+            return .none
+        }
+
+        let optionPressed = !prev.alt && flags.alt
+        let optionReleased = prev.alt && !flags.alt
+        let optionOnly = flags.alt && !flags.fn && !flags.ctrl && !flags.cmd && !flags.shift
+        if optionPressed && optionOnly { return .startOptionHold }
+        if optionReleased { return .cancelOptionHold }
+        return .none
     }
 }

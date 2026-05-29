@@ -2,8 +2,44 @@
 
 ## Current State
 
-**Last Updated:** 2026-05-28
-**Active Feature:** None — v0.3 milestone complete
+**Last Updated:** 2026-05-29
+**Active Feature:** Bugfix/rework — region selector (screenshot capture) overhaul
+
+## Multi-monitor fix 2026-05-29: per-screen overlay windows (feat-006)
+
+**Symptom:** on a two-screen setup the dim rendered on the wrong screen / offset / wrong size.
+
+**Root cause (class of bug, not a single line):** the overlay was ONE borderless window spanning the union of all screens. A window carries a single screen's properties (backing scale + coordinate origin), so the portion over the other display is positioned/rasterized wrong. Researched best practice (capcap reference impl, Apple docs) is **one overlay window per `NSScreen`**.
+
+**Fix:** rewrote `RegionSelectorController` to create one `RegionSelectorPanel` per `NSScreen` (`contentRect: screen.frame`, `[.borderless, .nonactivatingPanel]`, `.screenSaver`, `[.canJoinAllSpaces, .fullScreenAuxiliary]`, `acceptsMouseMovedEvents`). Each `RegionSelectorView` is screen-local (no union math) — dropped `unionOrigin`/`globalRect`/`viewRect`/`screenFrame` helpers. `acceptsFirstMouse(for:)=true` lets a drag start on a non-key screen. Only the cursor's screen dims (`isActiveScreen`, toggled by tracking-area enter/exit; stays dimmed during a drag). Esc moved from in-view `keyDown` (only one window is key, so it'd miss other screens) to **local + global `NSEvent` keyDown monitors**, stored and removed in `dismiss()`. Right-click + click-without-drag still cancel in-view. **`selectRegion()`'s return contract is unchanged** (global AppKit rect), so `ScreenshotCapturer` + its 4 tests are untouched. Build clean; 105/105 tests pass.
+
+**FOLLOW-UP (logged, deferred):** `CGDisplayCreateImage` is *obsoleted in the macOS 15 SDK* (compiles/runs today only because we build against an older SDK). Migrate `ScreenshotCapturer` to `SCScreenshotManager.captureImage(contentFilter:configuration:)` (macOS 14+, async): build `SCContentFilter(display:excludingWindows:[])`, set `config.sourceRect` (points, top-left within display) and `config.width/height = points × filter.pointPixelScale` for full Retina res. Same Screen Recording permission. Separate scoped change — do NOT fold into the overlay fix.
+
+**MANUAL VERIFY PENDING (must exercise the SECOND screen):** (a) drag-select on the secondary/non-key screen (exercises `acceptsFirstMouse`), (b) cursor A→B moves the dim AND A actually un-dims, (c) captured PNG from the secondary is the right region at full res (esp. if displays have different scale factors), (d) regression: single-screen drag / Esc / click-close / re-double-tap-toggle still work.
+
+## Rework 2026-05-29: region selector overhaul (feat-006)
+
+**Symptoms reported:** couldn't drag to select; no Esc to cancel; dimmed all screens; re-triggering stacked overlays; clicking (no drag) left it open.
+
+**Root causes:** (1) the SwiftUI `DragGesture` had no `.onEnded` and `onAnchorSet` was a no-op, so a completed drag never resolved the continuation — nothing happened. (2) Esc used `addGlobalMonitorForEvents`, which by design never sees the app's own key events. (3) Overlay built one dimmed panel per screen. (4) No guard against re-entrant `selectRegion()`. (5) `ScreenshotCapturer` captured only `CGMainDisplayID` and ignored `backingScaleFactor` (wrong region on Retina / secondary displays).
+
+**Fix:** Replaced the SwiftUI overlay with an AppKit `RegionSelectorView` (NSView) on a single borderless `RegionSelectorPanel` (NSPanel subclass with `canBecomeKey=true`) spanning the **union of all screens** — one always-key window avoids first-mouse / per-screen key juggling. Handles `mouseDown/Dragged/Up`, `rightMouseDown`, `keyDown` (Esc, keyCode 53) directly; `acceptsFirstMouse(for:)=true`; `.activeAlways` tracking for `mouseMoved`. Behaviors: only the cursor's screen is dimmed and the dim follows the cursor; drag <5pt (a click) cancels; Esc/right-click cancel; re-entrant `selectRegion()` toggles the overlay closed. `ScreenshotCapturer` now finds the screen containing the selection, captures that display, and converts global→display-local→pixels via a pure, unit-tested `pixelCropRect` (Retina-aware). Removed the dead `Views/RegionSelectorOverlayView.swift` and the global Esc monitor.
+
+**Verification:** Swift build clean; 105/105 tests pass (4 new `ScreenshotCapturerTests` for the coordinate conversion incl. Retina + secondary-screen origin).
+
+**Still pending — MANUAL (unit tests can't cover the event/coordinate path):** run the app and confirm (a) drag selects on the active screen, (b) moving the cursor across screens moves the dim, (c) Esc closes, (d) click-without-drag closes, (e) re-double-tap-Shift toggles closed, (f) **open the captured PNG and confirm it's the right region at full resolution** (the Retina/wrong-display trap a green test won't catch). Needs Screen Recording permission.
+
+## Bugfix 2026-05-29: double-tap Shift & Option-hold dead in-app
+
+## Bugfix 2026-05-29: double-tap Shift & Option-hold dead in-app
+
+**Symptom:** double-click-Shift (feat-006 screenshot flow) and hold-Option (feat-005 floating button) never triggered, despite passing unit tests.
+
+**Root cause:** On macOS, bare modifier keys (Shift, Option) emit `CGEventType.flagsChanged` — never `keyDown`/`keyUp`. `HotkeyEventTap` (1) omitted `.flagsChanged` from its event-tap mask, so those events never reached the callback, and (2) routed all modifier detection through the `if type == .keyDown` branch, which a bare modifier never enters. Regular chords (e.g. Option+Space) worked because they include a non-modifier key that does emit `keyDown`. Existing tests passed because they call `OptionHoldDetector.handleKeyDown` directly, never crossing the event-tap boundary where the bug lived.
+
+**Fix:** Added `.flagsChanged` to the mask and a `flagsChanged` branch that detects modifier transitions (absent→present / present→absent) via a new testable `HotkeyEventTap.decideModifierAction(flags:now:)`. Double-tap Shift = two clean Shift down-transitions within 0.4s; Option-hold starts on Option-only down, cancels on Option release or any real keyDown. Added `HotkeyEventTapTests` (7 cases). 101/101 tests pass; Swift build clean.
+
+**Still pending:** manual in-app verification (needs Input Monitoring grant + real keystrokes) — double-tap Shift → region selector; hold Option ~300ms → owl button.
 
 ## Status
 

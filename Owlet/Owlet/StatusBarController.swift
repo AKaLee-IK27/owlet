@@ -48,6 +48,10 @@ final class StatusBarController {
         header.isEnabled = false
         menu.addItem(header)
 
+        let version = NSMenuItem(title: versionLabel(), action: nil, keyEquivalent: "")
+        version.isEnabled = false
+        menu.addItem(version)
+
         let perms = NSMenuItem(title: permissionsLabel(probePermissions()), action: nil, keyEquivalent: "")
         perms.isEnabled = false
         menu.addItem(perms)
@@ -74,6 +78,14 @@ final class StatusBarController {
 
     @objc private func handleSettings() {
         onSettings?()
+    }
+
+    /// Reads the version + build from the app bundle's Info.plist.
+    private func versionLabel() -> String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(short) (\(build))"
     }
 
     private func permissionsLabel(_ status: PermissionStatus) -> String {
