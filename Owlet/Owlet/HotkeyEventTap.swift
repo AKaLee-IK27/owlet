@@ -20,7 +20,7 @@ final class HotkeyEventTap {
     private let optionHoldDetector: OptionHoldDetector?
     private let onDoubleClick: (@Sendable () -> Void)?
     private let lock = NSLock()
-    private var lastOptionKeyDownTime: Date?
+    private var lastShiftKeyDownTime: Date?
     private let doubleClickThreshold: TimeInterval = 0.4
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
 
@@ -28,7 +28,7 @@ final class HotkeyEventTap {
     ///   - chord: The chord this tap watches for. Read once at construction.
     ///   - onHotkey: Dispatched to a background queue when the chord fires.
     ///   - optionHoldDetector: Optional detector for Option hold-to-reveal.
-    ///   - onDoubleClick: Optional handler for double-click Option (screenshot flow).
+    ///   - onDoubleClick: Optional handler for double-click Shift (screenshot flow).
     init(chord: Chord,
          onHotkey: @escaping @Sendable () -> Void,
          optionHoldDetector: OptionHoldDetector? = nil,
@@ -86,7 +86,7 @@ final class HotkeyEventTap {
         self.runLoopSource = nil
         self.optionHoldDetector?.cancel()
         lock.lock()
-        lastOptionKeyDownTime = nil
+        lastShiftKeyDownTime = nil
         lock.unlock()
     }
 
@@ -115,7 +115,7 @@ final class HotkeyEventTap {
             if ChordMatcher.matches(chord: chord, key: keyName, flags: flags) {
                 optionHoldDetector?.cancel()
                 lock.lock()
-                lastOptionKeyDownTime = nil
+                lastShiftKeyDownTime = nil
                 lock.unlock()
                 DispatchQueue.global(qos: .userInitiated).async { [onHotkey] in
                     onHotkey()
@@ -123,13 +123,13 @@ final class HotkeyEventTap {
                 return nil  // consume the event
             }
 
-            // Option-only keyDown → check for double-click.
-            if flags.alt && !flags.fn && !flags.ctrl && !flags.cmd && !flags.shift {
+            // Shift-only keyDown → check for double-click (screenshot flow).
+            if flags.shift && !flags.fn && !flags.ctrl && !flags.cmd && !flags.alt {
                 lock.lock()
                 let now = Date()
-                if let lastTime = lastOptionKeyDownTime, now.timeIntervalSince(lastTime) < doubleClickThreshold {
+                if let lastTime = lastShiftKeyDownTime, now.timeIntervalSince(lastTime) < doubleClickThreshold {
                     // Double-click detected
-                    lastOptionKeyDownTime = nil
+                    lastShiftKeyDownTime = nil
                     lock.unlock()
                     optionHoldDetector?.cancel()
                     if let handler = onDoubleClick {
@@ -137,30 +137,28 @@ final class HotkeyEventTap {
                     }
                     return Unmanaged.passUnretained(event)
                 }
-                lastOptionKeyDownTime = now
+                lastShiftKeyDownTime = now
                 lock.unlock()
+            }
 
-                // Start hold detection.
+            // Option-only keyDown → start hold detection.
+            if flags.alt && !flags.fn && !flags.ctrl && !flags.cmd && !flags.shift {
                 if let detector = optionHoldDetector {
                     detector.handleKeyDown(flags: flags)
                 }
-            } else {
-                // Non-Option keyDown — reset double-click tracking.
-                lock.lock()
-                lastOptionKeyDownTime = nil
-                lock.unlock()
             }
+
             return Unmanaged.passUnretained(event)
         }
 
         if type == .keyUp {
-            if flags.alt {
+            if flags.shift {
                 lock.lock()
-                lastOptionKeyDownTime = nil
+                lastShiftKeyDownTime = nil
                 lock.unlock()
-                if let detector = optionHoldDetector {
-                    detector.handleOptionKeyUp()
-                }
+            }
+            if flags.alt, let detector = optionHoldDetector {
+                detector.handleOptionKeyUp()
             }
             return Unmanaged.passUnretained(event)
         }
