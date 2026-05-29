@@ -90,6 +90,28 @@ impl RewriteError {
     }
 }
 
+/// Replace every URL/email span with an opaque token `<prefix><index>Z`.
+/// Returns (masked_text, originals_by_index, prefix). No links → input unchanged, empty originals, empty prefix.
+fn mask_links(input: &str) -> (String, Vec<String>, String) {
+    let finder = LinkFinder::new(); // URLs (scheme required) + emails
+    let links: Vec<_> = finder.links(input).collect();
+    if links.is_empty() {
+        return (input.to_string(), Vec::new(), String::new());
+    }
+    let prefix = pick_prefix(input);
+    let mut originals: Vec<String> = Vec::with_capacity(links.len());
+    let mut masked = String::with_capacity(input.len());
+    let mut last = 0;
+    for link in &links {
+        masked.push_str(&input[last..link.start()]);
+        masked.push_str(&format!("{}{}Z", prefix, originals.len()));
+        originals.push(link.as_str().to_string());
+        last = link.end();
+    }
+    masked.push_str(&input[last..]);
+    (masked, originals, prefix)
+}
+
 /// Choose a sentinel prefix that does not already occur in the input.
 /// Default is `OWLETLINKZ`; only bumped for pathological inputs. Tokens are `<prefix><index>Z`.
 fn pick_prefix(input: &str) -> String {
@@ -246,6 +268,32 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mask_links_no_links_is_noop() {
+        let (masked, originals, prefix) = mask_links("just some words");
+        assert_eq!(masked, "just some words");
+        assert!(originals.is_empty());
+        assert_eq!(prefix, "");
+    }
+    #[test]
+    fn mask_links_replaces_url() {
+        let (masked, originals, _prefix) = mask_links("see https://ex.com/a_b now");
+        assert_eq!(masked, "see OWLETLINKZ0Z now");
+        assert_eq!(originals, vec!["https://ex.com/a_b".to_string()]);
+    }
+    #[test]
+    fn mask_links_replaces_email_and_url_in_order() {
+        let (masked, originals, _prefix) = mask_links("mail me@x.com or visit https://y.io");
+        assert_eq!(masked, "mail OWLETLINKZ0Z or visit OWLETLINKZ1Z");
+        assert_eq!(originals, vec!["me@x.com".to_string(), "https://y.io".to_string()]);
+    }
+    #[test]
+    fn mask_links_excludes_trailing_period() {
+        let (masked, originals, _prefix) = mask_links("go to https://ex.com.");
+        assert_eq!(masked, "go to OWLETLINKZ0Z.");
+        assert_eq!(originals, vec!["https://ex.com".to_string()]);
+    }
 
     #[test]
     fn pick_prefix_default_when_no_collision() {
