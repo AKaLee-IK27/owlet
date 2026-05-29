@@ -74,7 +74,7 @@ final class Preferences: @unchecked Sendable {
     }
 
     var visionModel: String {
-        get { defaults.string(forKey: Key.visionModel) ?? "qwen2.5-vl:7b" }
+        get { defaults.string(forKey: Key.visionModel) ?? "llava:7b" }
         set {
             defaults.set(newValue, forKey: Key.visionModel)
             post(.visionModel)
