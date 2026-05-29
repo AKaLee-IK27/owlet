@@ -90,6 +90,17 @@ impl RewriteError {
     }
 }
 
+/// Replace each exact token `<prefix><index>Z` with its original span.
+/// Tokens the model dropped/altered aren't found and are left for `append_dropped`.
+fn restore_links(text: &str, originals: &[String], prefix: &str) -> String {
+    let mut out = text.to_string();
+    for (i, original) in originals.iter().enumerate() {
+        let token = format!("{prefix}{i}Z");
+        out = out.replace(&token, original);
+    }
+    out
+}
+
 /// Replace every URL/email span with an opaque token `<prefix><index>Z`.
 /// Returns (masked_text, originals_by_index, prefix). No links → input unchanged, empty originals, empty prefix.
 fn mask_links(input: &str) -> (String, Vec<String>, String) {
@@ -268,6 +279,25 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restore_links_round_trips_exact() {
+        let originals = vec!["https://ex.com/a_b?x=1".to_string()];
+        let restored = restore_links("see OWLETLINKZ0Z now", &originals, "OWLETLINKZ");
+        assert_eq!(restored, "see https://ex.com/a_b?x=1 now");
+    }
+    #[test]
+    fn restore_links_multiple() {
+        let originals = vec!["me@x.com".to_string(), "https://y.io".to_string()];
+        let restored = restore_links("mail OWLETLINKZ0Z or OWLETLINKZ1Z", &originals, "OWLETLINKZ");
+        assert_eq!(restored, "mail me@x.com or https://y.io");
+    }
+    #[test]
+    fn restore_links_missing_token_left_as_is() {
+        let originals = vec!["https://gone.com".to_string(), "https://kept.io".to_string()];
+        let restored = restore_links("only OWLETLINKZ1Z survived", &originals, "OWLETLINKZ");
+        assert_eq!(restored, "only https://kept.io survived");
+    }
 
     #[test]
     fn mask_links_no_links_is_noop() {
