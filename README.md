@@ -105,6 +105,7 @@ After install:
 - [ ] **Empty selection** — popup shows "Select some text first".
 - [ ] **Password field** — popup shows "Owlet won't read from password fields".
 - [ ] **URL preservation** — rewrite a draft containing a URL (e.g. `https://example.com/a_b?x=1`). Confirm the URL appears in the result byte-for-byte, in place (not relocated to a trailing block).
+- [ ] **Add context / Refine** — after a rewrite, click **Add context**, type a note (e.g. "make it formal"), press **Refine**. Confirm the field accepts keystrokes (the popup takes key focus), the rewrite re-runs with the note applied, **Replace** still works, and clicking outside still dismisses (typing does **not** dismiss). The chip should **not** appear on screenshot-rewrite results.
 - [ ] **Spam `Option+Space` rapidly** — only one popup, in-flight cancelled.
 - [ ] **Kill Owlet** via Activity Monitor → press hotkey → nothing (expected).
 - [ ] **Reboot** → Owlet auto-launches → hotkey works.

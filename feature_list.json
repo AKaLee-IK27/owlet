@@ -54,7 +54,15 @@
       "description": "Placeholder masking in the Rust rewriter: linkify finds URLs/emails, masks each with a markdown-safe token (OWLETLINKZ<n>Z) before Ollama, restores exact originals after. Dropped links detected by token absence in the model output and re-appended (deduped, label-free). Spec: docs/superpowers/specs/2026-05-29-rewriter-options-design.md; plan: docs/superpowers/plans/2026-05-29-url-preservation.md.",
       "dependencies": [],
       "status": "done",
-      "evidence": "Rust 45/45 pass (cargo test), clippy clean. Two-stage subagent review (spec + code quality); code review found a substring false-positive in append_dropped — redesigned to detect drops by exact token presence in the model output. Live Ollama smoke (qwen3:8b, release build): 'check the docs at https://example.com/getting_started?ref=abc' → URL preserved verbatim and in place; 'see https://a.com and https://a.com/docs' → both preserved verbatim (prefix-substring pair, no re-append needed)."
+      "evidence": "Rust 49/49 pass (cargo test), clippy clean. Two-stage subagent review (spec + code quality); code review found a substring false-positive in append_dropped — redesigned to detect drops by exact token presence in the model output. Live Ollama smoke (qwen3:8b, release build): 'check the docs at https://example.com/getting_started?ref=abc' → URL preserved verbatim and in place; 'see https://a.com and https://a.com/docs' → both preserved verbatim (prefix-substring pair, no re-append needed)."
+    },
+    {
+      "id": "feat-008",
+      "name": "Per-rewrite context (refine after)",
+      "description": "Result popup's 'Add context' chip reveals a free-text field + Refine; re-runs the rewrite on stored source text (no AX re-capture) with the note injected via a --context flag and a [CONTEXT] block prepended to the user message. Popup becomes key (becomesKeyOnlyIfNeeded) without self-dismiss. Chip hidden on screenshot-flow results. Spec: docs/superpowers/specs/2026-05-29-rewriter-options-design.md; plan: docs/superpowers/plans/2026-05-29-per-rewrite-context.md.",
+      "dependencies": ["feat-007"],
+      "status": "done",
+      "evidence": "Rust 49/49 + Swift 108/108 pass; clippy clean. Two-stage subagent review on Rust and Swift halves (+ fix rounds: pinned system-prompt assertions; hid the Add-context chip on screenshot results where refine would rewrite stale text; empty-context refine routes to retry). Live Ollama --context smoke (qwen3:8b): 'tell me about dogs' --context 'audience is a 5 year old child' → output shifted to child-friendly language (context applied); --context 'SECRETMARKER do not leak this' → marker NOT echoed (never-echo rule holds). OBSERVATION (follow-up, not blocking): explanatory contexts can nudge the model toward answering vs rewriting the prompt — prompt-tuning, not plumbing. MANUAL VERIFY PENDING (needs GUI/install, no unit test reaches it): trigger a rewrite → tap 'Add context' → confirm the field takes the caret and keystrokes land (becomesKeyOnlyIfNeeded on a .nonactivatingPanel), press Refine, confirm Replace still writes back and click-outside still dismisses without self-dismissing while typing."
     }
   ]
 }
