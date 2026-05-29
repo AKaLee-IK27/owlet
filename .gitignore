@@ -15,3 +15,6 @@ Owlet/Owlet.xcodeproj/
 
 # macOS
 .DS_Store
+
+# skills CLI (taste-skill) — installed skill content; keep skills-lock.json tracked
+/.agents/
