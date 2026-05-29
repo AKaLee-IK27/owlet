@@ -76,9 +76,10 @@ struct ImprovePromptFloater: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
-        if case .loading = state {
+        switch state {
+        case .loading, .loadingScreenshot:
             ThinkingDots()
-        } else {
+        default:
             // Static hotkey hint when not thinking — keeps the eye on the
             // rewrite text rather than on chrome.
             Text("⌥ Space")
@@ -94,6 +95,12 @@ struct ImprovePromptFloater: View {
         case .loading(let sourceText, _, _):
             ScrollView(.vertical, showsIndicators: false) {
                 ShimmerText(text: sourceText)
+            }
+            .frame(maxHeight: 220)
+
+        case .loadingScreenshot:
+            ScrollView(.vertical, showsIndicators: false) {
+                ShimmerText(text: "Analyzing screenshot…")
             }
             .frame(maxHeight: 220)
 
@@ -187,14 +194,14 @@ struct ImprovePromptFloater: View {
     // MARK: Actions — Replace · Try again · spacer · Copy
     private var shouldShowActions: Bool {
         switch state {
-        case .loading, .result, .empty, .error: return true
+        case .loading, .loadingScreenshot, .result, .empty, .error: return true
         }
     }
 
     @ViewBuilder
     private var actions: some View {
         switch state {
-        case .loading:
+        case .loading, .loadingScreenshot:
             HStack(spacing: 4) {
                 GhostButton(label: "Cancel", action: onCancel)
                 Spacer(minLength: 0)
@@ -239,6 +246,7 @@ struct ImprovePromptFloater: View {
         case .focusLost:          return "Lost focus before Replace landed."
         case .axDenied:           return "Owlet needs Accessibility."
         case .backendUnavailable: return "Something went wrong."
+        case .noTextInImage:      return "No text found."
         }
     }
 
@@ -254,6 +262,7 @@ struct ImprovePromptFloater: View {
         case .focusLost:          return "Focus the target field again, then re-run."
         case .axDenied:           return "Grant Accessibility in System Settings, then relaunch Owlet."
         case .backendUnavailable(let m): return m
+        case .noTextInImage:            return "The selected region doesn't contain readable text."
         }
     }
 }

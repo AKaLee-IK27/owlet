@@ -13,6 +13,8 @@ struct PopupView: View {
             switch state {
             case .loading(let src, let long, _):
                 LoadingView(sourceText: src, isLong: long)
+            case .loadingScreenshot:
+                LoadingView(sourceText: "Analyzing screenshot…", isLong: false)
             case .result(let orig, let rew, let segs, let canReplace, _):
                 ResultView(original: orig,
                            rewritten: rew,
@@ -35,10 +37,11 @@ struct PopupView: View {
     /// Stable key so `.animation(value:)` re-triggers between cases.
     private var stateKey: String {
         switch state {
-        case .loading:  return "loading"
-        case .result:   return "result"
-        case .empty:    return "empty"
-        case .error:    return "error"
+        case .loading:      return "loading"
+        case .loadingScreenshot: return "loadingScreenshot"
+        case .result:       return "result"
+        case .empty:        return "empty"
+        case .error:        return "error"
         }
     }
 }

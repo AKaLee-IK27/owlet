@@ -45,6 +45,7 @@ struct ErrorView: View {
         case .focusLost:                return "The original text lost focus. You can still Copy the rewrite."
         case .axDenied:                 return "Owlet needs Accessibility permission. Open System Settings →"
         case .backendUnavailable(let m):return "Backend unavailable: \(m)"
+        case .noTextInImage:            return "No text found in the selected region."
         }
     }
 }
