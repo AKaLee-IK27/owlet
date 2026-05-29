@@ -42,7 +42,7 @@ struct ImprovePromptFloater: View {
 
             output.padding(.bottom, 12)
 
-            if case .result(_, _, _, _, _) = state {
+            if case .result(let original, _, _, _, _) = state, !original.isEmpty {
                 modeChips.padding(.bottom, showContextField ? 8 : 12)
                 if showContextField {
                     contextField.padding(.bottom, 12)
@@ -187,7 +187,7 @@ struct ImprovePromptFloater: View {
                 showContextField.toggle()
                 if showContextField {
                     // Defer so the field exists before we focus it.
-                    DispatchQueue.main.async { contextFocused = true }
+                    Task { @MainActor in contextFocused = true }
                 } else {
                     contextText = ""
                 }
@@ -307,6 +307,11 @@ struct ImprovePromptFloater: View {
 
 // MARK: - Mode enum
 // Local to this view since it's purely cosmetic until backend modes ship.
+/// Rewrite modes. For v0.4 only `.context` is wired (feat-008) and rendered as
+/// the "Add context" chip. The other cases are intentional placeholders for the
+/// future `--mode` feature (see docs/superpowers/specs/2026-05-29-rewriter-options-design.md,
+/// "Future research appendix"); `CaseIterable` is retained for that work. They are
+/// not dead code — do not remove without revisiting that plan.
 enum ImproveMode: String, CaseIterable, Identifiable {
     case clarify, context, structured, examples, compact
     var id: String { rawValue }

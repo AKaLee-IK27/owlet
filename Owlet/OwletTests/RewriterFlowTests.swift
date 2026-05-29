@@ -156,6 +156,24 @@ final class RewriterFlowTests: XCTestCase {
     }
 
     @MainActor
+    func test_refine_emptyContext_behavesLikeRetry() async {
+        let ax = MockAX()
+        let bogus = unsafeBitCast(0, to: AXUIElement.self)
+        ax.outcome = .captured(SelectionSnapshot(text: "hello world", sourceAppBundleID: "t",
+                                        focusedElement: bogus, captureMethod: .ax))
+        let rewriter = MockRewriter()
+        rewriter.response = .success("greetings world")
+        let flow = RewriterFlow(ax: ax, rewriter: rewriter, popup: PopupWindowController())
+        await flow.start()
+        ax.outcome = .empty
+        await flow.refine(context: "   ")     // whitespace-only → behaves like retry
+        XCTAssertNil(rewriter.lastContext, "empty/blank context must route to retry (nil context)")
+        if case .result = flow.lastObservedState {} else {
+            XCTFail("expected .result, got \(String(describing: flow.lastObservedState))")
+        }
+    }
+
+    @MainActor
     func test_capture_withNilFocus_clipboardOnly() async {
         // Simulates an Electron app: AX gives no focus, but Hammerspoon
         // already put the selection on the clipboard.

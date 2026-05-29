@@ -72,7 +72,9 @@ final class RewriterFlow {
 
     /// Re-run the rewrite on already-captured text (refine after edit).
     func refine(context: String) async {
-        await performRewrite(source: lastSourceText, captureMethod: lastCaptureMethod, context: context)
+        let trimmed = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { await retry(); return }
+        await performRewrite(source: lastSourceText, captureMethod: lastCaptureMethod, context: trimmed)
     }
 
     /// "Try again" — re-run from stored text, never re-capturing (the
@@ -186,6 +188,10 @@ final class RewriterFlow {
                 width: OwletDesign.Floater.width
             )
         } else {
+            // NOTE: popup.show() installs a fresh NSHostingView, so all view-local
+            // @State in ImprovePromptFloater (showContextField, contextText) resets
+            // on every setState. Intended — each state gets a clean view. Don't rely
+            // on @State surviving a setState; lift any cross-state value into RewriterFlow.
             popup.show(
                 ImprovePromptFloater(
                     state: state,
