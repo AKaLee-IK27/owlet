@@ -159,7 +159,24 @@ Each component is one section with a single responsibility, independently unders
 
 ## 9. Implementation log (filled during build)
 
-A running list of "skill rule X → decision Y" entries, plus any rule that was hard to satisfy or that conflicted with the brand. This is the evidence the skill was actually exercised.
+Built 2026-05-29 on branch `landing-page`. Next 16.2.6 / React 19 / Tailwind v4 / Motion 12. Stack: 15 tasks, subagent-driven, fresh agent per task, only landing/spec/progress files staged (Swift WIP never touched).
+
+**Skill install reality.** The skill was renamed upstream: the package no longer exposes `taste-skill`; the core "Anti-Slop Frontend Skill" is now `design-taste-frontend`. Installed to `.agents/skills/design-taste-frontend/SKILL.md` (this `skills` CLI centralizes under `.agents/`, not `.claude/skills/` as assumed). `skills-lock.json` committed; `/.agents/` gitignored.
+
+**Skill rule → decision:**
+- Em-dash ban (total) → zero em-dashes in body copy. The ban also caught real slop the body-text test missed: an em-dash in the `<title>` metadata, fixed to a colon. Added a metadata test for it.
+- Single accent → sage is the only CTA/accent color; coral confined to the logo and diff-removed text.
+- No layout family twice (≥4 distinct) → 6 distinct families: split / 3-step row / inverted color band / icon grid / reverse-split showcase / centered CTA.
+- Hero fits viewport; headline ≤ 2 lines; subtext ≤ 20 words → headline 2 lines, subtext 16 words, `pt-10` (well under the 6rem cap), one eyebrow.
+- Real images / real logos, no fake div-screenshots → real logo PNG; real Phosphor icons in the app grid; the hero popup is the legitimate product UI, not a faked screenshot.
+- Motion motivated + reduced-motion gating → a single reusable `Reveal` (fade-up on in-view, once). This surfaced a real defect (below).
+- `next/font` over Google `<link>` → fonts loaded via `next/font/google`.
+
+**Overrides (brand wins, per §6):** kept Fraunces Italic despite the skill's Fraunces ban; kept the locked paper/sage/coral palette instead of the skill's palette rotation; effective variance ~5 (calm) rather than the skill's baseline 8.
+
+**Defect found by verification (not the skill, but the process):** `Reveal` server-rendered `opacity:0` and, under `prefers-reduced-motion`, never animated back — leaving every wrapped section permanently invisible for reduced-motion (and no-JS) users. Caught via a reduced-motion screenshot. Fixed with a `[data-reveal]{opacity:1!important}` safety net in the reduced-motion CSS block. (The skill mandates reduced-motion gating but doesn't catch this specific failure mode; a naive reading of "gate motion behind reduced-motion" is what produced the bug.)
+
+**Logo:** required two corrections during brainstorming — a hand-traced SVG and the app-icon SVG were both rejected; the user's actual winking-owl PNG is the logo. Final asset is that PNG at `landing/public/owlet-logo.png`.
 
 ## 10. Verification
 
@@ -175,7 +192,21 @@ Then view at the dev URL.
 - Lighthouse/Core Web Vitals sane (LCP < 2.5s, CLS < 0.1) on the built page.
 - Visual parity with the locked design system (palette, fonts, logo, popup).
 
-**Skill verdict (§1 goal 1):** a short written assessment — did `taste-skill` measurably improve the structural quality (layout variety, motion discipline, anti-slop bans) versus a naive build? Where did its rules help, where did they conflict with a locked brand, and would the user keep it installed?
+**Results (2026-05-29):**
+- `npm run build` succeeds, no type/lint errors.
+- Playwright structural suite: **5/5 pass** — one h1, all six sections render, no em-dash in body text, no em-dash in title metadata, every image has an alt.
+- Visual parity confirmed via reduced-motion full-page screenshot: paper-cream canvas, Fraunces-italic display, sage/coral accents, real logo, the diff popup on a sage stage. Matches the locked design system.
+- Lighthouse: not run in this pass (static Next export, single hero image, system-loaded fonts — CWV expected to be fine; left as a manual follow-up).
+
+**Skill verdict (the answer to the original question):**
+
+`design-taste-frontend` (the renamed `taste-skill`) is a **prompt-level rulebook, not a library** — it ships no code, only an 87 KB `SKILL.md` of design constraints an agent reads before building. So "does it work" means "do its rules make the output better." For this project:
+
+- **Where it helped (real, measurable):** the structural bans are the value. The em-dash ban caught actual slop (in the title). "No layout family twice" forced 6 genuinely distinct sections instead of the default stack-of-identical-cards. The hero constraints (≤2-line headline, viewport fit, one eyebrow) and single-accent discipline kept the page calm and un-templated. These are exactly the "AI tells" the skill targets, and they held up.
+- **Where it conflicted with a locked brand:** most of the skill's *aesthetic* engine (palette rotation, the Fraunces ban, variance dial ~8) had to be overridden because the user has a real design system. That's expected and fine — the skill explicitly says its rules are contextual and the brand should win. The useful residue is the structural surface, which is brand-agnostic.
+- **Where it doesn't save you:** it is not a correctness tool. The one real bug (reduced-motion invisibility) came from following the skill's "gate motion behind reduced-motion" advice naively; the skill flagged the requirement but its guidance didn't prevent the failure mode. Catching it needed actual verification (a reduced-motion screenshot + tests), not the skill.
+
+**Would I keep it installed?** Yes, as a checklist/lint layer for greenfield marketing pages — the anti-slop bans and layout-variety rules earn their place. For work inside an existing design system, treat it as structural guidance only and expect to override its color/type opinions. It does not replace testing.
 
 ## 11. Open questions / risks
 
