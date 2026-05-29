@@ -27,4 +27,6 @@ body { font-family: var(--font-sans), system-ui, sans-serif; -webkit-font-smooth
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  /* Reveal wrappers must never stay hidden when motion is off (a11y + no-JS safety). */
+  [data-reveal] { opacity: 1 !important; transform: none !important; }
 }
