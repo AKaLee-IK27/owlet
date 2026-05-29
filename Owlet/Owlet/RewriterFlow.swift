@@ -7,6 +7,9 @@ final class RewriterFlow {
     private let ax: AXBridging
     private let rewriter: Rewriting
     private let popup: PopupWindowController
+    private let regionSelector: RegionSelectorController
+    private let screenshotCapturer: ScreenshotCapturer
+    private let visionClient: VisionClient
 
     /// Exposed for tests so they can assert the last state set on the popup.
     private(set) var lastObservedState: PopupState? = nil
@@ -15,10 +18,16 @@ final class RewriterFlow {
 
     init(ax: AXBridging = AXBridgeAdapter(),
          rewriter: Rewriting? = nil,
-         popup: PopupWindowController = PopupWindowController()) {
+         popup: PopupWindowController = PopupWindowController(),
+         regionSelector: RegionSelectorController = RegionSelectorController(),
+         screenshotCapturer: ScreenshotCapturer = ScreenshotCapturer(),
+         visionClient: VisionClient? = nil) {
         self.ax = ax
         self.popup = popup
         self.rewriter = rewriter ?? Self.makeDefaultRewriter()
+        self.regionSelector = regionSelector
+        self.screenshotCapturer = screenshotCapturer
+        self.visionClient = visionClient ?? VisionClient(model: Preferences.shared.visionModel, timeoutSeconds: 60)
     }
 
     /// Build the production OllamaClient spawning the `owlet-rewriter` Rust binary
@@ -109,19 +118,74 @@ final class RewriterFlow {
                           captureMethod: snap.captureMethod))
     }
 
+    func startFromScreenshot() async {
+        // 1. Region selection
+        guard let region = await regionSelector.selectRegion() else { return }
+
+        // 2. Capture
+        guard let imageData = await screenshotCapturer.capture(region: region) else {
+            setState(.error(.selectionUnreadable))
+            return
+        }
+
+        // 3. Loading state
+        setState(.loadingScreenshot)
+
+        // 4. Vision model
+        do {
+            let rewritten = try await visionClient.rewrite(imageData: imageData)
+            setState(.result(
+                original: "",
+                rewritten: rewritten,
+                segments: nil,
+                canReplace: false
+            ))
+        } catch VisionClient.Failure.modelNotFound(let model) {
+            setState(.error(.backendUnavailable(message: "Vision model '\(model)' not found. Run `ollama pull \(model)`")))
+        } catch VisionClient.Failure.timeout {
+            setState(.error(.timeout))
+        } catch VisionClient.Failure.emptyOutput {
+            setState(.error(.noTextInImage))
+        } catch VisionClient.Failure.backendError(let msg) {
+            if msg.localizedCaseInsensitiveContains("Connection") {
+                setState(.error(.ollamaDown))
+            } else {
+                setState(.error(.backendUnavailable(message: msg)))
+            }
+        } catch VisionClient.Failure.launchFailed(let msg) {
+            setState(.error(.backendUnavailable(message: msg)))
+        } catch {
+            setState(.error(.backendUnavailable(message: "\(error)")))
+        }
+    }
+
     private func setState(_ state: PopupState) {
         lastObservedState = state
-        // v0.4: branded ImprovePromptFloater replaces the v0.1–v0.3
-        // system-native PopupView. Same state machine, new chrome.
-        popup.show(
-            ImprovePromptFloater(state: state,
-                                 onReplace: { [weak self] in self?.handleReplace() },
-                                 onCopy:    { [weak self] in self?.handleCopy() },
-                                 onCancel:  { [weak self] in self?.handleCancel() },
-                                 onRetry:   { Task { [weak self] in await self?.start() } }),
-            anchorRect: Self.anchorRect(for: _currentFocusedElement),
-            width: OwletDesign.Floater.width
-        )
+        if case .loadingScreenshot = state {
+            popup.show(
+                ImprovePromptFloater(
+                    state: .loading(sourceText: "Analyzing screenshot…", isLong: false),
+                    onReplace: {},
+                    onCopy: {},
+                    onCancel: { [weak self] in self?.handleCancel() },
+                    onRetry: { Task { [weak self] in await self?.startFromScreenshot() } }
+                ),
+                anchorRect: nil,
+                width: OwletDesign.Floater.width
+            )
+        } else {
+            popup.show(
+                ImprovePromptFloater(
+                    state: state,
+                    onReplace: { [weak self] in self?.handleReplace() },
+                    onCopy:    { [weak self] in self?.handleCopy() },
+                    onCancel:  { [weak self] in self?.handleCancel() },
+                    onRetry:   { Task { [weak self] in await self?.start() } }
+                ),
+                anchorRect: Self.anchorRect(for: _currentFocusedElement),
+                width: OwletDesign.Floater.width
+            )
+        }
     }
 
     /// Compute the popup's screen-coord anchor rect.
