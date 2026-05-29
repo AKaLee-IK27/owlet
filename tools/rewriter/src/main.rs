@@ -241,7 +241,7 @@ fn parse_response(body: &str) -> Result<String, RewriteError> {
 fn build_payload(prompt: &str, model: &str, context: Option<&str>) -> serde_json::Value {
     let user_content = match context {
         Some(ctx) if !ctx.trim().is_empty() => {
-            format!("[CONTEXT]\n{ctx}\n[/CONTEXT]\n\n{prompt}")
+            format!("[CONTEXT]\n{}\n[/CONTEXT]\n\n{prompt}", ctx.trim())
         }
         _ => prompt.to_string(),
     };
@@ -611,6 +611,7 @@ mod tests {
         assert_eq!(msgs[1]["content"], "rewrite me");
         let sys_text = msgs[0]["content"].as_str().unwrap();
         assert!(sys_text.contains("prompt engineering assistant"));
+        assert!(sys_text.contains("User-provided context"));
     }
     #[test]
     fn build_payload_uses_provided_model() {
@@ -622,6 +623,7 @@ mod tests {
         let p = build_payload("rewrite me", "qwen3:8b", Some("for my boss"));
         let content = p["messages"][1]["content"].as_str().unwrap();
         assert!(content.contains("[CONTEXT]"));
+        assert!(content.contains("[/CONTEXT]"));
         assert!(content.contains("for my boss"));
         assert!(content.trim_end().ends_with("rewrite me"));
         assert_eq!(p["messages"].as_array().unwrap().len(), 2); // still ONE system msg
