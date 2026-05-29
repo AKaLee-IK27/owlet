@@ -20,6 +20,12 @@ test("no em-dashes anywhere in visible text (skill ban)", async ({ page }) => {
   expect(body.includes("—")).toBe(false);
 });
 
+test("no em-dash in document title metadata (skill ban is total)", async ({ page }) => {
+  await page.goto("/");
+  const title = await page.title();
+  expect(title.includes("—")).toBe(false);
+});
+
 test("every image has non-empty alt or explicit empty decorative alt", async ({ page }) => {
   await page.goto("/");
   const imgs = page.locator("img");

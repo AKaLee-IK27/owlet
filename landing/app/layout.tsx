@@ -16,7 +16,7 @@ const beVietnam = Be_Vietnam_Pro({
 });
 
 export const metadata: Metadata = {
-  title: "Owlet — rewrite anything, right where you are",
+  title: "Owlet: rewrite anything, right where you are",
   description:
     "A friendly local-LLM rewriter for macOS. Select text, press a hotkey, get clearer writing. No cloud, no API keys.",
 };
