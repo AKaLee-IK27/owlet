@@ -36,11 +36,9 @@ final class OllamaClient {
     func rewrite(_ input: String, context: String?) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
-        if let context, !context.isEmpty {
-            process.arguments = arguments + ["--context", context]
-        } else {
-            process.arguments = arguments
-        }
+        var args = arguments
+        if let context, !context.isEmpty { args += ["--context", context] }
+        process.arguments = args
         var env = ProcessInfo.processInfo.environment
         for (k, v) in environment { env[k] = v }
         process.environment = env

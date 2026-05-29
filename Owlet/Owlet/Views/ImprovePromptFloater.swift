@@ -42,6 +42,11 @@ struct ImprovePromptFloater: View {
 
             output.padding(.bottom, 12)
 
+            // Refine is only offered for text rewrites. The screenshot flow passes
+            // original: "" (and never stores source text), so a non-empty original
+            // is our signal that refine is supported. NOTE: if the screenshot path
+            // is ever changed to supply the OCR'd text as `original`, replace this
+            // with an explicit capability (e.g. a `canRefine` field on .result).
             if case .result(let original, _, _, _, _) = state, !original.isEmpty {
                 modeChips.padding(.bottom, showContextField ? 8 : 12)
                 if showContextField {
@@ -224,16 +229,19 @@ struct ImprovePromptFloater: View {
                 )
             PrimaryButton(
                 label: "Refine",
-                enabled: !contextText.trimmingCharacters(in: .whitespaces).isEmpty,
+                enabled: !trimmedContext.isEmpty,
                 action: submitRefine
             )
         }
     }
 
+    private var trimmedContext: String {
+        contextText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func submitRefine() {
-        let trimmed = contextText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onRefine(trimmed)
+        guard !trimmedContext.isEmpty else { return }
+        onRefine(trimmedContext)
     }
 
     // MARK: Actions — Replace · Try again · spacer · Copy

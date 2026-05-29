@@ -113,16 +113,20 @@ impl RewriteError {
 /// deduped by URL value (a URL that survived via another token instance is not
 /// re-appended). Each appended link on its own line after one blank line.
 fn append_dropped(restored: &str, model_output: &str, originals: &[String], prefix: &str) -> String {
+    // Each token's survival, checked once and reused by both passes below.
+    let token_survived: Vec<bool> = (0..originals.len())
+        .map(|i| model_output.contains(&format!("{prefix}{i}Z")))
+        .collect();
     // URLs that survived via at least one surviving token instance.
-    let mut survived: Vec<&str> = Vec::new();
-    for (i, original) in originals.iter().enumerate() {
-        if model_output.contains(&format!("{prefix}{i}Z")) {
-            survived.push(original.as_str());
-        }
-    }
+    let survived: Vec<&str> = originals
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| token_survived[*i])
+        .map(|(_, original)| original.as_str())
+        .collect();
     let mut dropped: Vec<&str> = Vec::new();
     for (i, original) in originals.iter().enumerate() {
-        if model_output.contains(&format!("{prefix}{i}Z")) {
+        if token_survived[i] {
             continue; // token survived → restored inline
         }
         let url = original.as_str();
