@@ -32,6 +32,7 @@ final class PopupWindowController {
                 defer: false
             )
             p.isFloatingPanel = true
+            p.becomesKeyOnlyIfNeeded = true   // text field can become key; buttons don't
             p.level = .floating
             p.hidesOnDeactivate = false
             p.titlebarAppearsTransparent = true
@@ -107,7 +108,11 @@ final class PopupWindowController {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            // Ignore Owlet activating itself (e.g. when the context field
+            // takes key focus) — only dismiss when ANOTHER app comes forward.
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if app?.bundleIdentifier == Bundle.main.bundleIdentifier { return }
             self?.hide()
         }
     }
