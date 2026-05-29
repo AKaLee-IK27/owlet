@@ -104,6 +104,7 @@ After install:
 - [ ] **Terminal / iTerm / Ghostty** — same.
 - [ ] **Empty selection** — popup shows "Select some text first".
 - [ ] **Password field** — popup shows "Owlet won't read from password fields".
+- [ ] **URL preservation** — rewrite a draft containing a URL (e.g. `https://example.com/a_b?x=1`). Confirm the URL appears in the result byte-for-byte, in place (not relocated to a trailing block).
 - [ ] **Spam `Option+Space` rapidly** — only one popup, in-flight cancelled.
 - [ ] **Kill Owlet** via Activity Monitor → press hotkey → nothing (expected).
 - [ ] **Reboot** → Owlet auto-launches → hotkey works.
