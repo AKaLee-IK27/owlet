@@ -90,6 +90,27 @@ impl RewriteError {
     }
 }
 
+/// Re-append any original link not already literally present in `text`, label-free
+/// (a hardcoded header would break language preservation), deduped. Each on its own
+/// line after one blank line.
+fn append_dropped(text: &str, originals: &[String]) -> String {
+    let mut dropped: Vec<&str> = Vec::new();
+    for original in originals {
+        let present_in_text = text.contains(original.as_str());
+        let already_queued = dropped.iter().any(|d| *d == original.as_str());
+        if !present_in_text && !already_queued {
+            dropped.push(original.as_str());
+        }
+    }
+    if dropped.is_empty() {
+        return text.to_string();
+    }
+    let mut out = text.trim_end().to_string();
+    out.push_str("\n\n");
+    out.push_str(&dropped.join("\n"));
+    out
+}
+
 /// Replace each exact token `<prefix><index>Z` with its original span.
 /// Tokens the model dropped/altered aren't found and are left for `append_dropped`.
 fn restore_links(text: &str, originals: &[String], prefix: &str) -> String {
@@ -279,6 +300,31 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn append_dropped_noop_when_all_present() {
+        let originals = vec!["https://kept.io".to_string()];
+        let out = append_dropped("text with https://kept.io inside", &originals);
+        assert_eq!(out, "text with https://kept.io inside");
+    }
+    #[test]
+    fn append_dropped_appends_missing_label_free() {
+        let originals = vec!["https://gone.com".to_string()];
+        let out = append_dropped("rewritten text", &originals);
+        assert_eq!(out, "rewritten text\n\nhttps://gone.com");
+    }
+    #[test]
+    fn append_dropped_dedupes_repeated_url() {
+        let originals = vec!["https://dup.io".to_string(), "https://dup.io".to_string()];
+        let out = append_dropped("kept https://dup.io once", &originals);
+        assert_eq!(out, "kept https://dup.io once");
+    }
+    #[test]
+    fn append_dropped_multiple_missing_each_on_own_line() {
+        let originals = vec!["https://a.com".to_string(), "https://b.com".to_string()];
+        let out = append_dropped("nothing here", &originals);
+        assert_eq!(out, "nothing here\n\nhttps://a.com\nhttps://b.com");
+    }
 
     #[test]
     fn restore_links_round_trips_exact() {
