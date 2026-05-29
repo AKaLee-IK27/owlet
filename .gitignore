@@ -18,3 +18,7 @@ Owlet/Owlet.xcodeproj/
 
 # skills CLI (taste-skill) — installed skill content; keep skills-lock.json tracked
 /.agents/
+
+# Agent scratch dirs (session working state, not project code)
+/.omo/
+/.superpowers/
