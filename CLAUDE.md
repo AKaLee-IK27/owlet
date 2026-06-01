@@ -32,7 +32,7 @@ If baseline verification is failing, fix that before adding new scope.
 # Rust rewriter (fast — seconds)
 (cd tools/rewriter && cargo test)
 
-# Rust + Ollama smoke (requires `ollama serve` + qwen3:8b pulled)
+# Rust + Ollama smoke (requires `ollama serve` + qwen2.5:1.5b pulled)
 (cd tools/rewriter && cargo build --release && bash tests/smoke.sh)
 
 # Swift app build only
@@ -80,5 +80,5 @@ A feature is done only when:
 
 - **Architecture / behavior decisions** → check `docs/superpowers/specs/` first, then ask the user
 - **TCC permission flakiness** (Accessibility / Input Monitoring) → see README Troubleshooting; ad-hoc re-signs invalidate grants
-- **Ollama not responding** → `ollama serve` in another terminal; `qwen3:8b` must be pulled
+- **Ollama not responding** → `ollama serve` in another terminal; `qwen2.5:1.5b` must be pulled
 - **Repeated test failures** → flag in `progress.md`, stop and ask

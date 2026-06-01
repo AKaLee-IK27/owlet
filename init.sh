@@ -31,7 +31,7 @@ echo "--- (3/3) Xcode project generate + Swift build ---"
        -quiet)
 
 if [ "$WITH_SMOKE" = "1" ]; then
-  echo "--- optional: Rust smoke (requires ollama serve + qwen3:8b) ---"
+  echo "--- optional: Rust smoke (requires ollama serve + qwen2.5:1.5b) ---"
   (cd tools/rewriter && bash tests/smoke.sh)
 fi
 

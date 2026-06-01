@@ -22,8 +22,10 @@ final class PreferencesTests: XCTestCase {
     func test_defaults_on_first_read() {
         let p = Preferences(defaults: defaults)
         XCTAssertEqual(p.hotkey, .default)
-        XCTAssertEqual(p.model, "qwen3:8b")
+        XCTAssertEqual(p.model, "qwen2.5:1.5b")
         XCTAssertTrue(p.launchAtLogin)
+        XCTAssertFalse(p.autocompleteEnabled)
+        XCTAssertEqual(p.autocompleteModel, "qwen2.5:1.5b")
     }
 
     func test_hotkey_roundtrip() {
@@ -48,6 +50,20 @@ final class PreferencesTests: XCTestCase {
         p.launchAtLogin = false
         let p2 = Preferences(defaults: defaults)
         XCTAssertFalse(p2.launchAtLogin)
+    }
+
+    func test_autocompleteEnabled_roundtrip() {
+        let p = Preferences(defaults: defaults)
+        p.autocompleteEnabled = true
+        let p2 = Preferences(defaults: defaults)
+        XCTAssertTrue(p2.autocompleteEnabled)
+    }
+
+    func test_autocompleteModel_roundtrip() {
+        let p = Preferences(defaults: defaults)
+        p.autocompleteModel = "qwen2.5:0.5b"
+        let p2 = Preferences(defaults: defaults)
+        XCTAssertEqual(p2.autocompleteModel, "qwen2.5:0.5b")
     }
 
     func test_hotkey_change_posts_notification_with_hotkey_payload() {
@@ -75,6 +91,24 @@ final class PreferencesTests: XCTestCase {
             (note.userInfo?["change"] as? Preferences.Change) == .launchAtLogin
         }
         p.launchAtLogin = false
+        wait(for: [exp], timeout: 0.5)
+    }
+
+    func test_autocompleteEnabled_change_posts_notification() {
+        let p = Preferences(defaults: defaults)
+        let exp = expectation(forNotification: Preferences.changedNotification, object: p) { note in
+            (note.userInfo?["change"] as? Preferences.Change) == .autocompleteEnabled
+        }
+        p.autocompleteEnabled = true
+        wait(for: [exp], timeout: 0.5)
+    }
+
+    func test_autocompleteModel_change_posts_notification() {
+        let p = Preferences(defaults: defaults)
+        let exp = expectation(forNotification: Preferences.changedNotification, object: p) { note in
+            (note.userInfo?["change"] as? Preferences.Change) == .autocompleteModel
+        }
+        p.autocompleteModel = "qwen2.5:0.5b"
         wait(for: [exp], timeout: 0.5)
     }
 

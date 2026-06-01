@@ -10,11 +10,13 @@
     },
     {
       "id": "feat-002",
-      "name": "Status-bar glyph swap (text.bubble → owl)",
+      "name": "Status-bar glyph swap (text.bubble \u2192 owl)",
       "description": "Replace SF Symbol 'text.bubble' in Owlet/Owlet/StatusBarController.swift:31 with a template-rendered monochrome owl glyph so the menu-bar icon matches the app icon.",
-      "dependencies": ["feat-001"],
-      "status": "not-started",
-      "evidence": ""
+      "dependencies": [
+        "feat-001"
+      ],
+      "status": "done",
+      "evidence": "Already shipped (status was stale). StatusBarController.swift:32 renders NSImage(named: \"OwletGlyph\") with a \"bird\" SF Symbol fallback, replacing the original text.bubble. DEVIATION from the literal spec: the glyph is the colored owl asset with isTemplate=false (pinned 22pt), not a template-rendered monochrome glyph — chosen so the menu-bar icon matches the colored app icon. Functional intent (menu-bar icon matches app icon) met. Verified by code inspection + Swift suite 132/132."
     },
     {
       "id": "feat-003",
@@ -28,7 +30,9 @@
       "id": "feat-004",
       "name": "README v0.3 refresh",
       "description": "README currently says v0.2. Once feat-003 ships (or v0.3 is otherwise tagged), update version mentions, prerequisites, and the manual smoke test checklist.",
-      "dependencies": ["feat-003"],
+      "dependencies": [
+        "feat-003"
+      ],
       "status": "done",
       "evidence": "README updated as part of feat-003 (see Task 14 in the v0.3 plan). Version bumped to v0.3, Settings section added, Customisation section updated, smoke checklist extended with Settings window steps."
     },
@@ -36,17 +40,24 @@
       "id": "feat-005",
       "name": "Hold-to-reveal floating button",
       "description": "Pressing and holding Option for 300ms shows a small circular owl button near the cursor. Clicking it opens the existing rewrite popup. Extends HotkeyEventTap with keyUp events and adds OptionHoldDetector, FloatingButtonController, and FloatingButtonView.",
-      "dependencies": ["feat-001", "feat-003"],
+      "dependencies": [
+        "feat-001",
+        "feat-003"
+      ],
       "status": "done",
-      "evidence": "All 89 tests pass including 7 new OptionHoldDetectorTests. Build clean. New files: OptionHoldDetector.swift, FloatingButtonController.swift, FloatingButtonView.swift, OptionHoldDetectorTests.swift. Modified: HotkeyEventTap.swift (keyUp support), OwletApp.swift (wiring). BUGFIX 2026-05-29: feature never fired in-app — bare Option emits CGEventType.flagsChanged, not keyDown/keyUp, which were absent from the event-tap mask. Added .flagsChanged to mask and routed Option-hold start/cancel through transition detection (HotkeyEventTap.decideModifierAction). 101/101 tests pass incl. 7 new HotkeyEventTapTests. MANUAL VERIFY PENDING: hold Option ~300ms in any text field → owl button appears."
+      "evidence": "All 89 tests pass including 7 new OptionHoldDetectorTests. Build clean. New files: OptionHoldDetector.swift, FloatingButtonController.swift, FloatingButtonView.swift, OptionHoldDetectorTests.swift. Modified: HotkeyEventTap.swift (keyUp support), OwletApp.swift (wiring). BUGFIX 2026-05-29: feature never fired in-app \u2014 bare Option emits CGEventType.flagsChanged, not keyDown/keyUp, which were absent from the event-tap mask. Added .flagsChanged to mask and routed Option-hold start/cancel through transition detection (HotkeyEventTap.decideModifierAction). 101/101 tests pass incl. 7 new HotkeyEventTapTests. MANUAL VERIFY PENDING: hold Option ~300ms in any text field \u2192 owl button appears."
     },
     {
       "id": "feat-006",
       "name": "Screenshot-based rewrite via double-click Option",
       "description": "Double-tap Shift to capture a screen region, send to a local vision model (default llava:7b), and show rewritten text in popup. Adds RegionSelectorController, ScreenshotCapturer, VisionClient, and extends HotkeyEventTap with double-tap detection. Trigger changed from double-click Option to double-tap Shift (commit 668f6e6); vision model changed from qwen2.5-vl to llava:7b (commit 52f8cfd).",
-      "dependencies": ["feat-001", "feat-003", "feat-005"],
+      "dependencies": [
+        "feat-001",
+        "feat-003",
+        "feat-005"
+      ],
       "status": "done",
-      "evidence": "All 94 tests pass including 5 new VisionClientTests. Build clean. New files: VisionClient.swift, VisionClientTests.swift, ScreenshotCapturer.swift, RegionSelectorController.swift, RegionSelectorOverlayView.swift. Modified: HotkeyEventTap.swift (double-click), RewriterFlow.swift (startFromScreenshot), PopupState.swift (.loadingScreenshot, .noTextInImage), Preferences.swift (visionModel), OwletApp.swift (wiring), ImprovePromptFloater.swift (loadingScreenshot rendering). BUGFIX 2026-05-29: double-tap trigger (now Shift, commit 668f6e6) never fired in-app — bare Shift emits CGEventType.flagsChanged, not keyDown, so detection in the keyDown branch was unreachable. Added .flagsChanged to event-tap mask; double-tap now detected via absent->present Shift transitions in HotkeyEventTap.decideModifierAction. 101/101 tests pass incl. 7 new HotkeyEventTapTests. MANUAL VERIFY PENDING: double-tap Shift → region selector opens. REWORK 2026-05-29: region selector overhauled — SwiftUI DragGesture (no onEnded; drags never completed) replaced with AppKit RegionSelectorView on a single union-of-all-screens RegionSelectorPanel (canBecomeKey). Adds: drag-to-select, Esc/right-click/click-without-drag to cancel, only-active-screen dim that follows the cursor, re-trigger toggles closed. ScreenshotCapturer now Retina/multi-display aware via unit-tested pixelCropRect. Removed Views/RegionSelectorOverlayView.swift. 105/105 tests pass (4 new ScreenshotCapturerTests). MANUAL VERIFY PENDING: drag/Esc/click-close/toggle/cross-screen-dim + open captured PNG to confirm correct region at full resolution (needs Screen Recording permission). MULTI-MONITOR FIX 2026-05-29: single union-spanning overlay window rendered the dim wrong on two screens (a window has one screen's scale/origin). Rewrote to one overlay window per NSScreen (screen-local coords, acceptsFirstMouse for drags on non-key screens, only cursor's screen dims, Esc via local+global NSEvent monitors removed in dismiss()). selectRegion() contract unchanged; ScreenshotCapturer + 4 tests untouched. 105/105 tests pass. FOLLOW-UP: CGDisplayCreateImage obsoleted in macOS 15 SDK — migrate ScreenshotCapturer to SCScreenshotManager (deferred). MANUAL VERIFY PENDING on a second screen specifically."
+      "evidence": "All 94 tests pass including 5 new VisionClientTests. Build clean. New files: VisionClient.swift, VisionClientTests.swift, ScreenshotCapturer.swift, RegionSelectorController.swift, RegionSelectorOverlayView.swift. Modified: HotkeyEventTap.swift (double-click), RewriterFlow.swift (startFromScreenshot), PopupState.swift (.loadingScreenshot, .noTextInImage), Preferences.swift (visionModel), OwletApp.swift (wiring), ImprovePromptFloater.swift (loadingScreenshot rendering). BUGFIX 2026-05-29: double-tap trigger (now Shift, commit 668f6e6) never fired in-app \u2014 bare Shift emits CGEventType.flagsChanged, not keyDown, so detection in the keyDown branch was unreachable. Added .flagsChanged to event-tap mask; double-tap now detected via absent->present Shift transitions in HotkeyEventTap.decideModifierAction. 101/101 tests pass incl. 7 new HotkeyEventTapTests. MANUAL VERIFY PENDING: double-tap Shift \u2192 region selector opens. REWORK 2026-05-29: region selector overhauled \u2014 SwiftUI DragGesture (no onEnded; drags never completed) replaced with AppKit RegionSelectorView on a single union-of-all-screens RegionSelectorPanel (canBecomeKey). Adds: drag-to-select, Esc/right-click/click-without-drag to cancel, only-active-screen dim that follows the cursor, re-trigger toggles closed. ScreenshotCapturer now Retina/multi-display aware via unit-tested pixelCropRect. Removed Views/RegionSelectorOverlayView.swift. 105/105 tests pass (4 new ScreenshotCapturerTests). MANUAL VERIFY PENDING: drag/Esc/click-close/toggle/cross-screen-dim + open captured PNG to confirm correct region at full resolution (needs Screen Recording permission). MULTI-MONITOR FIX 2026-05-29: single union-spanning overlay window rendered the dim wrong on two screens (a window has one screen's scale/origin). Rewrote to one overlay window per NSScreen (screen-local coords, acceptsFirstMouse for drags on non-key screens, only cursor's screen dims, Esc via local+global NSEvent monitors removed in dismiss()). selectRegion() contract unchanged; ScreenshotCapturer + 4 tests untouched. 105/105 tests pass. FOLLOW-UP: CGDisplayCreateImage obsoleted in macOS 15 SDK \u2014 migrate ScreenshotCapturer to SCScreenshotManager (deferred). MANUAL VERIFY PENDING on a second screen specifically."
     },
     {
       "id": "feat-007",
@@ -54,15 +65,100 @@
       "description": "Placeholder masking in the Rust rewriter: linkify finds URLs/emails, masks each with a markdown-safe token (OWLETLINKZ<n>Z) before Ollama, restores exact originals after. Dropped links detected by token absence in the model output and re-appended (deduped, label-free). Spec: docs/superpowers/specs/2026-05-29-rewriter-options-design.md; plan: docs/superpowers/plans/2026-05-29-url-preservation.md.",
       "dependencies": [],
       "status": "done",
-      "evidence": "Rust 49/49 pass (cargo test), clippy clean. Two-stage subagent review (spec + code quality); code review found a substring false-positive in append_dropped — redesigned to detect drops by exact token presence in the model output. Live Ollama smoke (qwen3:8b, release build): 'check the docs at https://example.com/getting_started?ref=abc' → URL preserved verbatim and in place; 'see https://a.com and https://a.com/docs' → both preserved verbatim (prefix-substring pair, no re-append needed)."
+      "evidence": "Rust 49/49 pass (cargo test), clippy clean. Two-stage subagent review (spec + code quality); code review found a substring false-positive in append_dropped \u2014 redesigned to detect drops by exact token presence in the model output. Live Ollama smoke (qwen3:8b, release build): 'check the docs at https://example.com/getting_started?ref=abc' \u2192 URL preserved verbatim and in place; 'see https://a.com and https://a.com/docs' \u2192 both preserved verbatim (prefix-substring pair, no re-append needed)."
     },
     {
       "id": "feat-008",
       "name": "Per-rewrite context (refine after)",
       "description": "Result popup's 'Add context' chip reveals a free-text field + Refine; re-runs the rewrite on stored source text (no AX re-capture) with the note injected via a --context flag and a [CONTEXT] block prepended to the user message. Popup becomes key (becomesKeyOnlyIfNeeded) without self-dismiss. Chip hidden on screenshot-flow results. Spec: docs/superpowers/specs/2026-05-29-rewriter-options-design.md; plan: docs/superpowers/plans/2026-05-29-per-rewrite-context.md.",
-      "dependencies": ["feat-007"],
+      "dependencies": [
+        "feat-007"
+      ],
       "status": "done",
-      "evidence": "Rust 49/49 + Swift 108/108 pass; clippy clean. Two-stage subagent review on Rust and Swift halves (+ fix rounds: pinned system-prompt assertions; hid the Add-context chip on screenshot results where refine would rewrite stale text; empty-context refine routes to retry). Live Ollama --context smoke (qwen3:8b): 'tell me about dogs' --context 'audience is a 5 year old child' → output shifted to child-friendly language (context applied); --context 'SECRETMARKER do not leak this' → marker NOT echoed (never-echo rule holds). OBSERVATION (follow-up, not blocking): explanatory contexts can nudge the model toward answering vs rewriting the prompt — prompt-tuning, not plumbing. MANUAL VERIFY PENDING (needs GUI/install, no unit test reaches it): trigger a rewrite → tap 'Add context' → confirm the field takes the caret and keystrokes land (becomesKeyOnlyIfNeeded on a .nonactivatingPanel), press Refine, confirm Replace still writes back and click-outside still dismisses without self-dismissing while typing."
+      "evidence": "Rust 49/49 + Swift 108/108 pass; clippy clean. Two-stage subagent review on Rust and Swift halves (+ fix rounds: pinned system-prompt assertions; hid the Add-context chip on screenshot results where refine would rewrite stale text; empty-context refine routes to retry). Live Ollama --context smoke (qwen3:8b): 'tell me about dogs' --context 'audience is a 5 year old child' \u2192 output shifted to child-friendly language (context applied); --context 'SECRETMARKER do not leak this' \u2192 marker NOT echoed (never-echo rule holds). OBSERVATION (follow-up, not blocking): explanatory contexts can nudge the model toward answering vs rewriting the prompt \u2014 prompt-tuning, not plumbing. MANUAL VERIFY PENDING (needs GUI/install, no unit test reaches it): trigger a rewrite \u2192 tap 'Add context' \u2192 confirm the field takes the caret and keystrokes land (becomesKeyOnlyIfNeeded on a .nonactivatingPanel), press Refine, confirm Replace still writes back and click-outside still dismisses without self-dismissing while typing."
+    },
+    {
+      "id": "feat-013",
+      "name": "Always-on inline autocomplete (AX-native fields)",
+      "description": "Cotypist-style inline ghost text at the caret, default off behind Settings. Reads AX caret context + BoundsForRange, asks qwen2.5:1.5b via Ollama /api/generate, shows a click-through overlay, Tab accepts, Esc/typing dismisses, password fields excluded. Spec: docs/superpowers/specs/2026-06-01-owlet-autocomplete-design.md; plan: docs/superpowers/plans/2026-06-01-owlet-autocomplete.md.",
+      "dependencies": [
+        "feat-003"
+      ],
+      "status": "implemented-manual-pending",
+      "evidence": "Swift XCTest PASS on 2026-06-01: (cd Owlet && xcodebuild test -project Owlet.xcodeproj -scheme Owlet -destination platform=macOS) \u2192 125/125 tests pass. Added AutocompleteController/Predictor/GhostTextOverlay, AX caret context + insertAtCaret, HotkeyEventTap Tab/Esc/text-change handling, Settings toggle/model picker. MANUAL VERIFY PENDING: TextEdit ghost text at caret, Tab insert/passthrough, p50 latency \u2264 ~200 ms, password fields never predict, supported AX-native app list. COORDINATE FIX 2026-06-01: ghost text never appeared at the caret because AXBridge.readCaretContext returned the raw kAXBoundsForRange rect in Quartz space (top-left origin) and GhostTextOverlay used it as Cocoa coords (bottom-left origin) with no y-flip, so the overlay landed at the vertically mirrored position and the screen-clamp pinned it there. Fix: flip to Cocoa coords at the AXBridge boundary against the union of all screen frames' maxY (multi-monitor safe), plus a char-before-caret BoundsForRange fallback when the zero-length query returns an empty rect. Pure flip helper AXBridge.cocoaRect(fromAXRect:screenUnionMaxY:) unit-tested (3 new AXBridgeGeometryTests). Swift XCTest PASS: -only-testing AXBridgeGeometryTests + AutocompleteControllerTests → 9/9. MANUAL RESULT 2026-06-01, STILL BROKEN: on a single built-in Retina display the ghost appears but FAR from the caret. Ruled out model/enable/Ollama (autocomplete on, qwen2.5:1.5b returns completions, running build has the flip), so the flip alone is not the full story on one display. Added temporary 'caretgeom' diagnostic logging in AXBridge.caretCocoaRect (raw zero/char AX rects, union maxY, main frame, converted rect) to capture the real numbers. NEXT: type in TextEdit, read log show --predicate subsystem==co.greenpassport.owlet AND category==caretgeom --info, fix the caret-bounds-to-screen mapping, remove the diagnostic, then re-run the TextEdit check. See session-handoff.md 'Open bug'. LANDING PASS 2026-06-01: Swift suite 132/132 pass (xcodebuild test -scheme Owlet -destination platform=macOS, this session). Model-latency proxy via curl to Ollama /api/generate using Predictor's exact request shape (qwen2.5:1.5b, num_predict 12, temp 0.2, stop newline, keep_alive 24h) over 6 representative prefixes: warm p50=148ms p90=163ms max=164ms; cold/first-load 301ms (one-time, mitigated by keep_alive). NOTE: model latency ALONE — true end-to-end adds the 120ms debounce + AX caret read + overlay render, measurable only in the running app. R1 fragile assumption (tiny model ~150ms over Ollama) validated on the model term. Code now carries the WebKit/Notes AXTextMarker fallback + AXFrame rectIsNearAnchor validator — MORE complete than progress.md's 'NOT fixed' note (doc drift; resolve by VERIFYING in a real WebKit app, not assuming). Temp caretgeom diagnostic INTENTIONALLY LEFT IN per plan until visual smoke confirms positioning. REMAINING GATE (user-only, cannot run headless): ./install.sh -> re-grant Accessibility+Input Monitoring -> enable Autocomplete -> (1) TextEdit single-display: ghost lands AT caret, Tab inserts at correct offset, Tab w/o suggestion passes through, Esc/typing dismisses, password field never predicts; (2) Notes multi-monitor: ghost lands at caret (exercises textMarker + primary-maxY fix). If positioning off, capture: log show --predicate 'subsystem == \"co.greenpassport.owlet\" AND category == \"caretgeom\"' --info. On pass: remove the caretgeom diagnostic + flip status to done in the same commit."
+    },
+    {
+      "id": "feat-014",
+      "name": "Single-model consolidation + rewriter prompt-hardening",
+      "description": "Gate switching new installs and rewriter default from qwen3:8b to qwen2.5:1.5b on prompt-hardening tests that prove context/Refine rewrites instead of answering.",
+      "dependencies": [
+        "feat-013"
+      ],
+      "status": "implemented-quality-pending",
+      "evidence": "CODE DONE; rewrite-QUALITY at 1.5b NOT yet user-verified (parallels feat-013's manual-pending) — the 8B→1.5B swap is a user-visible change to the README's 'stable core' rewriter and needs a human to confirm the rewrites still read as well as qwen3:8b's before this counts shipped. Rust 50/50 (cargo test; +1 system_prompt_forbids_answering). PROMPT HARDENED in SYSTEM_PROMPT: '# Critical: rewrite, never answer' section + a context-doesn't-change-the-job clause on the [CONTEXT] section. GATE (tests/smoke.sh, OWLET_SMOKE_MODEL-parameterized, bash-3.2-safe array expansion) — 3 behavioral assertions: (T4) rewrite-not-answer no-context 'whats the capital of france' MUST NOT yield 'Paris'; (T5) never-echo-context unique marker absent; (T6) rewrite-not-answer UNDER explanatory context 'whats the capital of france' --context 'explain for a five year old' MUST NOT yield 'Paris' — T6 is the one that actually probes feat-008's 'explanatory context nudges toward answering' risk (T4/T5 alone do not). Gate ran clean on qwen2.5:1.5b: T4→'What is the capital city of France?'; T6→'Explain to a five-year-old what the capital of France is.'; marker never echoed; 'i want make python code for csv read'→'Write Python code to read a CSV file.' Also clean on qwen3:8b. Gate passed → DEFAULT_MODEL flipped qwen3:8b→qwen2.5:1.5b (main.rs:8), bare-default smoke re-ran clean. SWEPT all qwen3:8b refs for single-model consolidation: install.sh MODEL (one ~1GB shared download), Preferences.swift rewriter default + PreferencesTests assertion, README (×3), AGENTS.md (×3 incl. flipping the 'feat-014 not done' note), CLAUDE.md/init.sh/tools/rewriter/AGENTS.md smoke prereqs. Swift suite 132/132 pass after the Preferences default change. OUT OF SCOPE / NOTED: OllamaModelLister's empty-list display fallback still returns [\"qwen3:8b\"] (degraded-mode picker fallback, not the rewriter default — feat-018). REMAINING GATE (user-only): install → run a real rewrite → confirm 1.5b quality is acceptable, OR decide to keep qwen3:8b for the rewriter and accept two downloads."
+    },
+    {
+      "id": "feat-015",
+      "name": "Autocomplete coverage + controls",
+      "description": "Phase 2 autocomplete controls: word-by-word Tab acceptance (Tab takes the next word, repeat to take more, keep typing to adjust), per-app allow/deny list, clean non-AX degrade for apps without BoundsForRange, suggestion-length presets (3-7 / 7-12 / 12-20 words via a Preferences enum mapped to the predict call's max-tokens; cf. Cotabby), and a menu-bar pause toggle to silence always-on prediction (cf. Cotabby; Esc-dismiss already shipped in feat-013).",
+      "dependencies": [
+        "feat-013"
+      ],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-016",
+      "name": "Cotypist extras",
+      "description": "Phase 3 autocomplete extras: typo correction, emoji-on-colon, and local on-device frequency/vocab learning.",
+      "dependencies": [
+        "feat-013",
+        "feat-015"
+      ],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-017",
+      "name": "Permission explainer + first-run onboarding",
+      "description": "Per-permission explainer UI (cf. Cotabby's privacy panel): on first run / from Settings, show exactly what each macOS grant does and why nothing leaves the Mac — Accessibility (read focused field + caret to place suggestions), Input Monitoring (detect typing + Tab accept), Screen Recording (region OCR for the screenshot-rewrite flow). Doubles as the fix for the most common 'why am I seeing no suggestions?' support case (missing grant / paused / no model). Trust surface, not core inference.",
+      "dependencies": [
+        "feat-013"
+      ],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-018",
+      "name": "Bring-your-own model in Settings",
+      "description": "Expose model choice as a first-class Settings picker for both autocomplete and rewriter, letting the user point Owlet at any locally available Ollama model rather than the bundled default. Settings already has a model picker (feat-003); this generalises it (list installed models, validate availability, persist per-role choice). cf. Cotabby's GGUF swap, adapted to Owlet's Ollama runtime.",
+      "dependencies": [
+        "feat-013"
+      ],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-019",
+      "name": "Model tiers picker (fast vs sharp)",
+      "description": "Offer a small set of speed/quality autocomplete tiers (cf. Cotabby's nano/mini/base/pro) so weaker Macs can trade quality for latency. GATED on feat-013's measured p50 latency data — the speed/quality curve isn't known until the latency gate runs, so this stays not-started until then. Builds on feat-018's model plumbing.",
+      "dependencies": [
+        "feat-013",
+        "feat-014",
+        "feat-018"
+      ],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-020",
+      "name": "Apple Intelligence (FoundationModels) engine",
+      "description": "Optional in-process inference backend via Apple's FoundationModels runtime (no Ollama, no model download) behind the existing Predicting protocol. macOS 26 + supported-hardware gate; falls back to the Ollama/MLX path when unavailable. Largest lift of the autocomplete extras and a real differentiator (cf. Cotabby's Apple Intelligence engine). Behind the Predicting protocol so it stays contained.",
+      "dependencies": [
+        "feat-013"
+      ],
+      "status": "not-started",
+      "evidence": ""
     }
   ]
 }

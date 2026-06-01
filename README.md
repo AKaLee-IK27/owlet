@@ -1,16 +1,17 @@
 # Owlet
 
-Small, friendly local-LLM tools for macOS. **Owlet Rewriter** is a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen3:8b`). No cloud, no API keys, no browser extension.
+Small, friendly local-LLM tools for macOS. **Owlet Rewriter** is a Grammarly-style popup that rewrites the text you've selected into clearer English using Ollama (`qwen2.5:1.5b`). No cloud, no API keys, no browser extension.
 
 > **Status: v0.4 (preview).** The text-rewrite flow is the stable core. Two newer input methods — the hold-Option floating button and double-tap-Shift screenshot rewrite — are implemented and unit-tested but **not yet fully manually verified** across multi-monitor setups. See [Known limitations](#known-limitations).
 
-**Three ways to invoke a rewrite:**
+**Four local writing assists:**
 
 | Trigger | What it does |
 | --- | --- |
 | `Option+Space` (configurable) | Rewrite the **currently selected text** → inline diff popup → Replace or Copy. |
 | **Hold `Option`** (~300 ms) | Pops a floating owl button near the cursor; click it to rewrite the current selection. |
 | **Double-tap `Shift`** | Drag-select a screen region → a vision model reads the text in the image → rewrite popup. |
+| **Autocomplete** (Settings, default off, **experimental**) | As you type in AX-native text fields, asks a tiny local model for a continuation and shows grey ghost text; **Tab** accepts, **Esc**/typing dismisses. Caret positioning is still being fixed. |
 
 ## Prerequisites
 
@@ -20,7 +21,7 @@ Small, friendly local-LLM tools for macOS. **Owlet Rewriter** is a Grammarly-sty
 - [Homebrew](https://brew.sh) — used to install xcodegen and the brand fonts
 - Xcode (full IDE — Command Line Tools alone are not enough)
 
-**Models:** `install.sh` pulls the text model (`qwen3:8b`, ~5.2 GB). The **vision model used by the double-tap-Shift screenshot rewrite is not pulled automatically** — if you want that feature, run `ollama pull llava:7b` yourself (the default; change it in Settings).
+**Models:** `install.sh` pulls a single model, `qwen2.5:1.5b` (~1 GB), shared by both the text rewriter and autocomplete — no separate download to enable autocomplete. The **vision model used by the double-tap-Shift screenshot rewrite is not pulled automatically** — if you want that feature, run `ollama pull llava:7b` yourself (the default; change it in Settings).
 
 ## Install
 
@@ -31,7 +32,7 @@ cd ~/repos/owlet
 
 The installer:
 
-1. Pulls `qwen3:8b` (~5.2 GB) via Ollama.
+1. Pulls `qwen2.5:1.5b` (~1 GB) via Ollama.
 2. Builds the owlet-rewriter Rust binary (`cargo build --release`).
 3. Adds `OLLAMA_KEEP_ALIVE=24h` to `~/.zshrc` if not already set.
 4. Installs xcodegen if missing.
@@ -60,6 +61,12 @@ Press and hold `Option` for ~300 ms (without pressing another key). A small circ
 
 Double-tap `Shift` to open a screen-region selector. Drag to select a region (Esc / right-click / click-without-drag cancels); Owlet captures it, sends the image to a local **vision model** (`llava:7b` by default), and shows the recognised-then-rewritten text in the popup. Requires **Screen Recording** permission (macOS prompts on first use) and the vision model pulled locally (`ollama pull llava:7b`).
 
+### Inline autocomplete (preview, default off)
+
+Open Settings and enable **Autocomplete**. In AX-native text fields, Owlet debounces typing, reads the text before the caret plus the caret bounds, asks `qwen2.5:1.5b` for a short continuation, and draws grey ghost text near the caret. **Tab** accepts the visible suggestion; **Esc** or continued typing dismisses it. Password fields are excluded, and apps that do not expose caret bounds via Accessibility are skipped.
+
+**Known issue (in progress):** the ghost text currently renders at the wrong screen position, away from the caret, even in AX-native fields like TextEdit. Prediction reaches Ollama and the Tab/Esc/dismiss logic is unit-tested, but the caret-bounds-to-screen coordinate mapping is under active debugging, so runtime accept has not been verifiable while the ghost is misplaced. Until that lands, autocomplete is experimental.
+
 ## Auto-launch at login
 
 On first successful launch (after permissions are granted) Owlet registers itself as a Login Item via `SMAppService`. You can toggle this in Settings (`Cmd+,`) or in `System Settings → General → Login Items`. If you disable it, Owlet's hotkey works only when you launch the app manually.
@@ -75,12 +82,14 @@ Press `Cmd+,` (or pick "Settings…" from the menu-bar icon) to change the hotke
 - **Change the prompt:** edit `const SYSTEM_PROMPT` in `tools/rewriter/src/main.rs`, then re-run `./install.sh`. The shipped default is tuned for **improving prompts** written for a chat AI (Claude / GPT / Gemini) — that's also why the popup is titled "Improve prompt". Swap in your own prompt for general rewriting.
 - **Add context to a rewrite:** in the result popup, click **Add context**, type a note (e.g. "for my boss", "keep it under two sentences"), and press **Refine** to re-run the rewrite with that guidance (feat-008). URLs and email addresses in the draft are preserved verbatim (feat-007).
 - **Change the vision model:** open Settings (`Cmd+,`) and pick a locally-pulled vision-capable model for the screenshot flow (default `llava:7b`).
+- **Enable autocomplete:** open Settings (`Cmd+,`), turn on **Autocomplete**, and pick a locally-pulled autocomplete model (default `qwen2.5:1.5b`).
 
 ## Known limitations
 
 - **Screenshot rewrite is preview-quality.** feat-006 (double-tap Shift) is implemented and unit-tested, but the end-to-end path — region selection on a *secondary* display, and the captured PNG resolving to the correct region at full Retina resolution — has not been fully verified by hand on a multi-monitor setup. Treat it as preview.
 - **Deprecated capture API.** `ScreenshotCapturer` uses `CGDisplayCreateImage`, which is obsoleted in the macOS 15 SDK (it compiles/runs today only against an older SDK). A migration to `SCScreenshotManager` (ScreenCaptureKit) is tracked as a follow-up.
 - **Only the "Add context" mode is wired.** v0.4 ships the **Add context** chip (feat-008), which re-runs the rewrite with a free-text note. The other preset modes (Clarify / Structured / Examples / Compact) are not yet implemented — the rewriter has no `--mode` flag — so they're hidden for now; the `ImproveMode` scaffolding remains for that future work.
+- **Autocomplete is experimental and default-off.** The prediction loop and Tab/Esc handling are unit-tested, but the ghost text currently renders at the wrong screen position (away from the caret) even in AX-native fields; the caret-bounds-to-screen coordinate mapping is being debugged. It also still needs manual latency and supported-app verification. Phase 1 only targets AX-native fields that expose `kAXBoundsForRangeParameterizedAttribute`; Electron apps, terminals, and other non-cooperative fields skip suggestions.
 - **Brand fonts degrade silently.** Fraunces and Be Vietnam Pro are installed by `install.sh` via Homebrew casks. If they're missing, the popup falls back to the system font (SF Pro) with no runtime warning.
 
 ## Project layout
@@ -123,8 +132,17 @@ After install:
 - [ ] **Multi-monitor:** drag-select on the *secondary* screen; moving the cursor across screens moves the dim. Open the captured PNG and confirm it's the right region at full resolution.
 - [ ] Grant **Screen Recording** when prompted on first use; confirm `llava:7b` (or your chosen vision model) is pulled.
 
+**Inline autocomplete (experimental — caret positioning currently fails):**
+- [ ] Pull the default model if needed: `ollama pull qwen2.5:1.5b`.
+- [ ] Settings → enable **Autocomplete**. TextEdit: type in a normal text field → grey ghost text appears. **Known-failing:** it currently lands away from the caret, not next to it (coordinate-mapping bug under debug).
+- [ ] Press **Tab** while a suggestion is visible → suggestion inserts at the caret.
+- [ ] Press **Tab** with no suggestion visible → normal tab/indent behavior passes through.
+- [ ] Press **Esc** or keep typing → suggestion dismisses.
+- [ ] Password field → no suggestion appears.
+- [ ] Measure p50 end-to-end latency; target ≤ ~200 ms. Notes / Mail / Safari / Pages: record which expose caret bounds and position correctly.
+
 **Settings window (v0.3):**
-- [ ] Open via `Cmd+,` or menubar → "Settings…". Three rows visible; Hotkey shows `⌥ Space`.
+- [ ] Open via `Cmd+,` or menubar → "Settings…". Hotkey shows `⌥ Space`; autocomplete controls are visible and default off.
 - [ ] Click `Record`, press `Ctrl+Shift+J`. The chord is committed on capture (no extra Save click); the field now shows `⌃⇧J`. Trigger a rewrite with the new chord — popup appears.
 - [ ] Press `Option+Space` in a text field — it types a non-breaking space (NBSP), confirming the old binding is released.
 - [ ] Click `Reset`. Trigger with `Option+Space`; popup appears.

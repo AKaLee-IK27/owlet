@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The General tab of Owlet's Settings window. Three rows: hotkey
-/// recorder + reset, Ollama model picker, launch-at-login toggle.
+/// The General tab of Owlet's Settings window: hotkey recorder,
+/// rewriter/vision/autocomplete model pickers, and app toggles.
 /// Width is fixed at 440 so the layout doesn't reflow as the model
 /// list arrives asynchronously.
 struct SettingsView: View {
@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var hotkey: Chord = Preferences.shared.hotkey
     @State private var isRecording: Bool = false
     @State private var model: String = Preferences.shared.model
+    @State private var autocompleteEnabled: Bool = Preferences.shared.autocompleteEnabled
+    @State private var autocompleteModel: String = Preferences.shared.autocompleteModel
     @State private var launchAtLogin: Bool = Preferences.shared.launchAtLogin
 
     @State private var models: [String] = []
@@ -56,6 +58,31 @@ struct SettingsView: View {
                     }
                 }
 
+                LabeledContent("Autocomplete") {
+                    Toggle("Show inline suggestions", isOn: $autocompleteEnabled)
+                        .onChange(of: autocompleteEnabled) { _, newValue in
+                            Preferences.shared.autocompleteEnabled = newValue
+                        }
+                }
+
+                LabeledContent("Autocomplete model") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $autocompleteModel) {
+                            ForEach(autocompleteModelChoices, id: \.self) { name in
+                                Text(name).tag(name)
+                            }
+                        }
+                        .labelsHidden()
+                        .disabled(!autocompleteEnabled)
+                        .onChange(of: autocompleteModel) { _, newValue in
+                            Preferences.shared.autocompleteModel = newValue
+                        }
+                        Text("Default: qwen2.5:1.5b. Autocomplete stays off until enabled.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 LabeledContent("Launch at login") {
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("", isOn: $launchAtLogin)
@@ -94,6 +121,12 @@ struct SettingsView: View {
     private var modelChoices: [String] {
         var set = Set(models)
         set.insert(model)
+        return Array(set).sorted()
+    }
+
+    private var autocompleteModelChoices: [String] {
+        var set = Set(models)
+        set.insert(autocompleteModel)
         return Array(set).sorted()
     }
 

@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsCloseObserver: NSObjectProtocol?
     private var optionHoldDetector: OptionHoldDetector?
     private var floatingButtonController: FloatingButtonController?
+    private var autocompleteController: AutocompleteController?
 
     /// Present Owlet's Settings window. Promotes activation policy to `.regular`
     /// so the window can take focus from a menu-bar app, and reverts to `.accessory`
@@ -39,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: hosting)
             window.title = "Owlet Settings"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 460, height: 360))
+            window.setContentSize(NSSize(width: 500, height: 460))
             window.center()
             window.isReleasedWhenClosed = false
             settingsWindow = window
@@ -104,12 +105,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nothing to do here — VisionClient reads Preferences.shared.visionModel
             // lazily on each invocation.
             break
+        case .autocompleteEnabled:
+            if !Preferences.shared.autocompleteEnabled {
+                autocompleteController?.stop()
+                hotkeyTap?.setAutocompleteSuggestionVisible(false)
+            }
+        case .autocompleteModel:
+            autocompleteController?.stop()
+            hotkeyTap?.setAutocompleteSuggestionVisible(false)
         }
     }
 
-    private func rebindHotkeyTap() {
-        hotkeyTap?.stop()
-        let newTap = HotkeyEventTap(
+    private func makeHotkeyTap(optionHoldDetector: OptionHoldDetector?) -> HotkeyEventTap {
+        HotkeyEventTap(
             chord: Preferences.shared.hotkey,
             onHotkey: {
                 Task { @MainActor in
@@ -123,11 +131,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let flow = RewriterFlow()
                     await flow.startFromScreenshot()
                 }
+            },
+            onAutocompleteTextChanged: { [weak self] in
+                Task { @MainActor in self?.autocompleteController?.textChanged() }
+            },
+            onAutocompleteAccept: { [weak self] in
+                Task { @MainActor in self?.autocompleteController?.accept() }
+            },
+            onAutocompleteDismiss: { [weak self] in
+                Task { @MainActor in self?.autocompleteController?.dismiss() }
             }
         )
+    }
+
+    private func rebindHotkeyTap() {
+        hotkeyTap?.stop()
+        let newTap = makeHotkeyTap(optionHoldDetector: optionHoldDetector)
         switch newTap.start() {
         case .success:
             hotkeyTap = newTap
+            newTap.setAutocompleteSuggestionVisible(autocompleteController?.suggestionVisible ?? false)
             Self.logger.info("Rewriter hotkey rebound to \(Preferences.shared.hotkey.displayString, privacy: .public)")
         case .failure:
             Self.logger.error("Hotkey rebind failed; showing permission modal")
@@ -153,26 +176,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.optionHoldDetector = detector
 
+        let autocomplete = AutocompleteController(onVisibilityChanged: { [weak self] visible in
+            self?.hotkeyTap?.setAutocompleteSuggestionVisible(visible)
+        })
+        self.autocompleteController = autocomplete
+
         // Rewriter chord — defaults to Option+Space, user-configurable via Settings.
-        let rewriterTap = HotkeyEventTap(
-            chord: Preferences.shared.hotkey,
-            onHotkey: {
-                Task { @MainActor in
-                    let flow = RewriterFlow()
-                    await flow.start()
-                }
-            },
-            optionHoldDetector: detector,
-            onDoubleClick: {
-                Task { @MainActor in
-                    let flow = RewriterFlow()
-                    await flow.startFromScreenshot()
-                }
-            }
-        )
+        let rewriterTap = makeHotkeyTap(optionHoldDetector: detector)
         switch rewriterTap.start() {
         case .success:
             self.hotkeyTap = rewriterTap
+            rewriterTap.setAutocompleteSuggestionVisible(autocomplete.suggestionVisible)
             Self.logger.info("Rewriter hotkey tap active")
         case .failure:
             // Should be rare since PermissionChecker said all granted; defensive

@@ -10,7 +10,7 @@ import os.log
 /// `UserDefaults` suite via the designated initialiser.
 final class Preferences: @unchecked Sendable {
 
-    enum Change: String { case hotkey, model, launchAtLogin, visionModel }
+    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel }
 
     static let changedNotification = Notification.Name("OwletPreferencesChanged")
     static let shared = Preferences(defaults: .standard)
@@ -22,8 +22,10 @@ final class Preferences: @unchecked Sendable {
     private enum Key {
         static let hotkey         = "hotkey"
         static let model          = "model"
-        static let launchAtLogin  = "launchAtLogin"
-        static let visionModel    = "visionModel"
+        static let launchAtLogin        = "launchAtLogin"
+        static let visionModel          = "visionModel"
+        static let autocompleteEnabled = "autocompleteEnabled"
+        static let autocompleteModel   = "autocompleteModel"
     }
 
     init(defaults: UserDefaults) {
@@ -52,7 +54,7 @@ final class Preferences: @unchecked Sendable {
     }
 
     var model: String {
-        get { defaults.string(forKey: Key.model) ?? "qwen3:8b" }
+        get { defaults.string(forKey: Key.model) ?? "qwen2.5:1.5b" }
         set {
             defaults.set(newValue, forKey: Key.model)
             post(.model)
@@ -78,6 +80,22 @@ final class Preferences: @unchecked Sendable {
         set {
             defaults.set(newValue, forKey: Key.visionModel)
             post(.visionModel)
+        }
+    }
+
+    var autocompleteEnabled: Bool {
+        get { defaults.bool(forKey: Key.autocompleteEnabled) } // default false
+        set {
+            defaults.set(newValue, forKey: Key.autocompleteEnabled)
+            post(.autocompleteEnabled)
+        }
+    }
+
+    var autocompleteModel: String {
+        get { defaults.string(forKey: Key.autocompleteModel) ?? "qwen2.5:1.5b" }
+        set {
+            defaults.set(newValue, forKey: Key.autocompleteModel)
+            post(.autocompleteModel)
         }
     }
 

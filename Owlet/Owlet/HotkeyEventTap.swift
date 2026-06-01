@@ -19,11 +19,15 @@ final class HotkeyEventTap {
     private let onHotkey: @Sendable () -> Void
     private let optionHoldDetector: OptionHoldDetector?
     private let onDoubleClick: (@Sendable () -> Void)?
+    private let onAutocompleteTextChanged: (@Sendable () -> Void)?
+    private let onAutocompleteAccept: (@Sendable () -> Void)?
+    private let onAutocompleteDismiss: (@Sendable () -> Void)?
     private let lock = NSLock()
     private var lastShiftKeyDownTime: Date?
     /// Last-seen modifier state, used to detect absent→present / present→absent
     /// transitions on `flagsChanged` events (bare modifier keys never emit keyDown).
     private var previousFlags = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: false, shift: false)
+    private var autocompleteSuggestionVisible = false
     private let doubleClickThreshold: TimeInterval = 0.4
     private static let logger = Logger(subsystem: "co.greenpassport.owlet", category: "hotkey")
 
@@ -36,6 +40,15 @@ final class HotkeyEventTap {
         case cancelOptionHold
     }
 
+    enum KeyDownAction: Equatable {
+        case passThrough
+        case passThroughAndNotifyTextChanged
+        case passThroughDismissAndNotifyTextChanged
+        case fireHotkey
+        case acceptAutocomplete
+        case dismissAutocomplete
+    }
+
     /// - Parameters:
     ///   - chord: The chord this tap watches for. Read once at construction.
     ///   - onHotkey: Dispatched to a background queue when the chord fires.
@@ -44,11 +57,17 @@ final class HotkeyEventTap {
     init(chord: Chord,
          onHotkey: @escaping @Sendable () -> Void,
          optionHoldDetector: OptionHoldDetector? = nil,
-         onDoubleClick: (@Sendable () -> Void)? = nil) {
+         onDoubleClick: (@Sendable () -> Void)? = nil,
+         onAutocompleteTextChanged: (@Sendable () -> Void)? = nil,
+         onAutocompleteAccept: (@Sendable () -> Void)? = nil,
+         onAutocompleteDismiss: (@Sendable () -> Void)? = nil) {
         self.chord = chord
         self.onHotkey = onHotkey
         self.optionHoldDetector = optionHoldDetector
         self.onDoubleClick = onDoubleClick
+        self.onAutocompleteTextChanged = onAutocompleteTextChanged
+        self.onAutocompleteAccept = onAutocompleteAccept
+        self.onAutocompleteDismiss = onAutocompleteDismiss
     }
 
     @discardableResult
@@ -101,6 +120,7 @@ final class HotkeyEventTap {
         lock.lock()
         lastShiftKeyDownTime = nil
         previousFlags = ModifierFlags(fn: false, ctrl: false, cmd: false, alt: false, shift: false)
+        autocompleteSuggestionVisible = false
         lock.unlock()
     }
 
@@ -144,9 +164,27 @@ final class HotkeyEventTap {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             let keyName = KeyCodeMap.name(for: Int(keyCode)) ?? ""
 
-            // Chord match takes priority — cancel hold detector and fire rewrite.
-            if ChordMatcher.matches(chord: chord, key: keyName, flags: flags) {
+            switch decideKeyDownAction(keyCode: Int(keyCode), keyName: keyName, flags: flags) {
+            case .acceptAutocomplete:
                 optionHoldDetector?.cancel()
+                setAutocompleteSuggestionVisible(false)
+                if let handler = onAutocompleteAccept {
+                    DispatchQueue.global(qos: .userInitiated).async { handler() }
+                }
+                return nil
+            case .dismissAutocomplete:
+                optionHoldDetector?.cancel()
+                setAutocompleteSuggestionVisible(false)
+                if let handler = onAutocompleteDismiss {
+                    DispatchQueue.global(qos: .userInitiated).async { handler() }
+                }
+                return nil
+            case .fireHotkey:
+                optionHoldDetector?.cancel()
+                setAutocompleteSuggestionVisible(false)
+                if let dismiss = onAutocompleteDismiss {
+                    DispatchQueue.global(qos: .utility).async { dismiss() }
+                }
                 lock.lock()
                 lastShiftKeyDownTime = nil
                 lock.unlock()
@@ -154,15 +192,67 @@ final class HotkeyEventTap {
                     onHotkey()
                 }
                 return nil  // consume the event
+            case .passThroughAndNotifyTextChanged:
+                optionHoldDetector?.cancel()
+                if let handler = onAutocompleteTextChanged {
+                    DispatchQueue.global(qos: .utility).async { handler() }
+                }
+                return Unmanaged.passUnretained(event)
+            case .passThroughDismissAndNotifyTextChanged:
+                optionHoldDetector?.cancel()
+                setAutocompleteSuggestionVisible(false)
+                if let handler = onAutocompleteTextChanged {
+                    DispatchQueue.global(qos: .utility).async { handler() }
+                }
+                return Unmanaged.passUnretained(event)
+            case .passThrough:
+                optionHoldDetector?.cancel()
+                return Unmanaged.passUnretained(event)
             }
-
-            // Any real key pressed means Option (if held) is no longer held in
-            // isolation, so the hold-to-reveal must be cancelled.
-            optionHoldDetector?.cancel()
-            return Unmanaged.passUnretained(event)
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    func setAutocompleteSuggestionVisible(_ visible: Bool) {
+        lock.lock()
+        autocompleteSuggestionVisible = visible
+        lock.unlock()
+    }
+
+    func decideKeyDownAction(keyCode: Int, keyName: String, flags: ModifierFlags) -> KeyDownAction {
+        let visible: Bool = lock.withLock { autocompleteSuggestionVisible }
+
+        if visible {
+            if keyCode == 48 { return .acceptAutocomplete } // Tab
+            if keyCode == 53 { return .dismissAutocomplete } // Esc
+        }
+
+        if ChordMatcher.matches(chord: chord, key: keyName, flags: flags) {
+            return .fireHotkey
+        }
+
+        if visible, Self.isPrintableOrEditingKey(keyCode: keyCode, flags: flags) {
+            return .passThroughDismissAndNotifyTextChanged
+        }
+
+        if Self.isTextChangingKey(keyCode: keyCode, flags: flags) {
+            return .passThroughAndNotifyTextChanged
+        }
+        return .passThrough
+    }
+
+    private static func isTextChangingKey(keyCode: Int, flags: ModifierFlags) -> Bool {
+        // Command/control shortcuts usually do not mutate text at the caret; do
+        // not start the autocomplete loop for Cmd+C, Ctrl+Tab, etc.
+        guard !flags.cmd && !flags.ctrl && !flags.fn else { return false }
+        return isPrintableOrEditingKey(keyCode: keyCode, flags: flags)
+    }
+
+    private static func isPrintableOrEditingKey(keyCode: Int, flags: ModifierFlags) -> Bool {
+        if keyCode == 48 || keyCode == 53 { return false } // Tab / Esc handled separately
+        if (0...50).contains(keyCode) { return true }      // letters, numbers, punctuation, Space, Return
+        return keyCode == 51 || keyCode == 117            // Delete / Forward Delete
     }
 
     /// Decide what a modifier transition means, given the current flags and the

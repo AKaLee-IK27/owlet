@@ -76,4 +76,71 @@ final class HotkeyEventTapTests: XCTestCase {
         // Option+Shift together is not a bare-Option hold.
         XCTAssertEqual(tap.decideModifierAction(flags: optionShift, now: t0), .none)
     }
+
+    // MARK: - Autocomplete key handling
+
+    func test_tabPassesThroughWhenNoSuggestionVisible() {
+        let tap = makeTap()
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 48, keyName: "Tab", flags: none),
+            .passThrough
+        )
+    }
+
+    func test_tabAcceptsOnlyWhenSuggestionVisible() {
+        let tap = makeTap()
+        tap.setAutocompleteSuggestionVisible(true)
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 48, keyName: "Tab", flags: none),
+            .acceptAutocomplete
+        )
+    }
+
+    func test_escapeDismissesOnlyWhenSuggestionVisible() {
+        let tap = makeTap()
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 53, keyName: "Escape", flags: none),
+            .passThrough
+        )
+        tap.setAutocompleteSuggestionVisible(true)
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 53, keyName: "Escape", flags: none),
+            .dismissAutocomplete
+        )
+    }
+
+    func test_printableKeyNotifiesTextChanged() {
+        let tap = makeTap()
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 0, keyName: "A", flags: none),
+            .passThroughAndNotifyTextChanged
+        )
+    }
+
+    func test_printableKeyDismissesVisibleSuggestionAndNotifiesTextChanged() {
+        let tap = makeTap()
+        tap.setAutocompleteSuggestionVisible(true)
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 0, keyName: "A", flags: none),
+            .passThroughDismissAndNotifyTextChanged
+        )
+    }
+
+    func test_chordStillFiresWhenSuggestionVisible() {
+        let tap = makeTap()
+        tap.setAutocompleteSuggestionVisible(true)
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 49, keyName: "space", flags: none),
+            .fireHotkey
+        )
+    }
+
+    func test_commandShortcutDoesNotNotifyTextChanged() {
+        let tap = makeTap()
+        let command = ModifierFlags(fn: false, ctrl: false, cmd: true, alt: false, shift: false)
+        XCTAssertEqual(
+            tap.decideKeyDownAction(keyCode: 8, keyName: "C", flags: command),
+            .passThrough
+        )
+    }
 }

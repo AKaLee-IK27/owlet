@@ -156,7 +156,7 @@ enum AXBridge {
         return value as? String
     }
 
-    private static func isPasswordField(_ element: AXUIElement) -> Bool {
+    static func isPasswordField(_ element: AXUIElement) -> Bool {
         var role: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
         if let r = role as? String, r == "AXSecureTextField" { return true }
@@ -164,6 +164,170 @@ enum AXBridge {
         AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
         if let sr = subrole as? String, sr == "AXSecureTextField" { return true }
         return false
+    }
+
+    static func readCaretContext(from element: AXUIElement) -> CaretContext? {
+        var valueRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
+              let value = valueRef as? String else { return nil }
+
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+              let rangeValue = rangeRef,
+              CFGetTypeID(rangeValue) == AXValueGetTypeID() else { return nil }
+        let axRange = rangeValue as! AXValue
+        var selectedRange = CFRange()
+        guard AXValueGetValue(axRange, .cfRange, &selectedRange) else { return nil }
+
+        let utf16 = value.utf16
+        let clampedLocation = max(0, min(selectedRange.location, utf16.count))
+        let end = String.Index(utf16Offset: clampedLocation, in: value)
+        let prefix = String(value[..<end])
+
+        let caretRect = caretCocoaRect(in: element, caretLocation: clampedLocation)
+        return CaretContext(textBeforeCaret: prefix, caretScreenRect: caretRect)
+    }
+
+    /// Caret rect in **Cocoa screen coordinates** (bottom-left origin), or nil.
+    ///
+    /// `kAXBoundsForRange` returns Quartz screen space (top-left origin); the
+    /// overlay needs Cocoa space, so we flip here at the boundary. We try, in order:
+    ///   1. a zero-length range at the caret,
+    ///   2. the bounds of the character *before* the caret (trailing edge ≈ caret),
+    ///   3. the `AXTextMarker` caret bounds — Chromium/WebKit editors (e.g. Apple
+    ///      Notes) ignore `kAXBoundsForRange` for `NSRange` and return a degenerate
+    ///      rect, but resolve the caret correctly through their opaque marker API.
+    /// Each candidate is validated against the focused element's `AXFrame` so a
+    /// response in the wrong coordinate space can't drag the overlay off-screen. If
+    /// none validate we still return the first geometrically usable rect, preserving
+    /// behavior for fields that expose no `AXFrame` anchor.
+    private static func caretCocoaRect(in element: AXUIElement, caretLocation: Int) -> NSRect? {
+        // TEMP DIAGNOSTIC (feat-013 ghost-position hunt) — remove after verifying.
+        let geom = Logger(subsystem: "co.greenpassport.owlet", category: "caretgeom")
+        let anchor = elementCocoaFrame(element)
+        var firstUsable: NSRect?
+
+        func evaluate(_ rect: NSRect, label: String) -> NSRect? {
+            if firstUsable == nil { firstUsable = rect }
+            guard rectIsNearAnchor(rect, anchor: anchor) else { return nil }
+            geom.notice("chose=\(label, privacy: .public) cocoa=\(NSStringFromRect(rect), privacy: .public)")
+            return rect
+        }
+
+        if let zero = axBounds(in: element, location: caretLocation, length: 0), zero.height > 0,
+           let r = evaluate(cocoaRect(fromAXRect: zero), label: "zero") {
+            return r
+        }
+        if caretLocation > 0,
+           let char = axBounds(in: element, location: caretLocation - 1, length: 1), char.height > 0 {
+            // Trailing edge of the previous character ≈ caret position.
+            let trailing = CGRect(x: char.maxX, y: char.origin.y, width: 0, height: char.height)
+            if let r = evaluate(cocoaRect(fromAXRect: trailing), label: "charBefore") { return r }
+        }
+        if let marker = axTextMarkerCaretRect(in: element), marker.height > 0,
+           let r = evaluate(cocoaRect(fromAXRect: marker), label: "textMarker") {
+            return r
+        }
+
+        if let firstUsable {
+            geom.notice("chose=unvalidated cocoa=\(NSStringFromRect(firstUsable), privacy: .public) anchor=\(NSStringFromRect(anchor ?? .zero), privacy: .public)")
+            return firstUsable
+        }
+        geom.notice("chose=none anchor=\(NSStringFromRect(anchor ?? .zero), privacy: .public)")
+        return nil
+    }
+
+    /// The focused element's `AXFrame` in Cocoa screen coordinates — the field
+    /// anchor used to validate caret rects. Nil when the element exposes no frame.
+    private static func elementCocoaFrame(_ element: AXUIElement) -> NSRect? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXFrame" as CFString, &ref) == .success,
+              let value = ref, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(value as! AXValue, .cgRect, &rect), !rect.isEmpty else { return nil }
+        return cocoaRect(fromAXRect: rect)
+    }
+
+    /// True when `rect`'s midpoint lies within the field `anchor` expanded by an 80pt
+    /// halo, or when no anchor is available (cannot validate). Rejects caret rects that
+    /// resolve far from the focused field — e.g. a response in the wrong coordinate
+    /// space. The 80pt halo absorbs padding, scrolling, and multi-line offsets.
+    /// Exposed (non-private) so the accept/reject boundary can be unit-tested.
+    static func rectIsNearAnchor(_ rect: NSRect, anchor: NSRect?) -> Bool {
+        guard let anchor, !anchor.isEmpty else { return true }
+        let expanded = anchor.insetBy(dx: -80, dy: -80)
+        return expanded.contains(NSPoint(x: rect.midX, y: rect.midY))
+    }
+
+    /// Caret bounds for Chromium/WebKit editors (e.g. Apple Notes) that return a
+    /// degenerate rect from `kAXBoundsForRange`: they expose the selection only
+    /// through the opaque `AXTextMarker` API. Read `AXSelectedTextMarkerRange`, then
+    /// ask for `AXBoundsForTextMarkerRange`. The marker objects are opaque — never
+    /// inspected, only passed back to AX. Returns raw Quartz coordinates (caller
+    /// flips), or nil when the app doesn't implement the marker attributes.
+    private static func axTextMarkerCaretRect(in element: AXUIElement) -> CGRect? {
+        var markerRangeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+                element, "AXSelectedTextMarkerRange" as CFString, &markerRangeRef) == .success,
+              let markerRange = markerRangeRef else { return nil }
+
+        var boundsRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+                element, "AXBoundsForTextMarkerRange" as CFString, markerRange, &boundsRef) == .success,
+              let bounds = boundsRef, CFGetTypeID(bounds) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    /// Query `kAXBoundsForRange` for a UTF-16 range, in raw Quartz coordinates.
+    private static func axBounds(in element: AXUIElement, location: Int, length: Int) -> CGRect? {
+        var cfRange = CFRange(location: location, length: length)
+        guard let axRange = AXValueCreate(.cfRange, &cfRange) else { return nil }
+        var boundsRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            axRange,
+            &boundsRef
+        ) == .success,
+           let boundsValue = boundsRef,
+           CFGetTypeID(boundsValue) == AXValueGetTypeID() else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    /// Flip a Quartz/AX screen rect (top-left origin, y grows down) into a Cocoa
+    /// screen rect (bottom-left origin, y grows up). Reads the live screen layout.
+    static func cocoaRect(fromAXRect rect: CGRect) -> NSRect {
+        return cocoaRect(fromAXRect: rect, primaryScreenMaxY: primaryScreenMaxY())
+    }
+
+    /// Cocoa `maxY` of the primary display — the screen whose Cocoa frame origin
+    /// is `.zero`, which is the screen carrying the menu bar and the anchor for
+    /// CoreGraphics global coordinates. This is the correct flip reference: a
+    /// monitor mounted *above* the primary makes the all-screens union taller, but
+    /// CG's origin stays pinned to the primary's top-left, so flipping against the
+    /// union shifts every rect up by that monitor's height and lands overlays on
+    /// the wrong screen. Falls back to the first screen, then a safe identity.
+    private static func primaryScreenMaxY() -> CGFloat {
+        let primary = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.screens.first
+        return primary?.frame.maxY ?? 0
+    }
+
+    /// Pure flip against the primary display's Cocoa `maxY`. Exposed for unit
+    /// testing; see `primaryScreenMaxY()` for why the primary (not the screen
+    /// union) is the correct anchor.
+    static func cocoaRect(fromAXRect rect: CGRect, primaryScreenMaxY: CGFloat) -> NSRect {
+        NSRect(x: rect.origin.x,
+               y: primaryScreenMaxY - rect.maxY,
+               width: rect.width,
+               height: rect.height)
+    }
+
+    static func insertAtCaret(_ text: String, in element: AXUIElement) -> ReplaceResult {
+        replaceSelection(text, in: element)
     }
 
     private static func postCmdV() -> Bool { postKey(keyCode: 9 /* V */) }

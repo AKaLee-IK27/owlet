@@ -5,7 +5,10 @@ use linkify::LinkFinder;
 
 const OLLAMA_URL: &str = "http://localhost:11434/api/chat";
 const TIMEOUT_SECS: u64 = 30;
-const DEFAULT_MODEL: &str = "qwen3:8b";
+// feat-014: consolidated onto the autocomplete model (qwen2.5:1.5b) after the
+// prompt-hardening smoke gate proved it rewrites (not answers) under context.
+// One model for rewriter + autocomplete = one download. See tests/smoke.sh.
+const DEFAULT_MODEL: &str = "qwen2.5:1.5b";
 
 struct Args {
     model: String,
@@ -41,6 +44,9 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
 const SYSTEM_PROMPT: &str = r#"You are a prompt engineering assistant. Rewrite the user's draft prompt — intended for a chat AI like Claude, GPT, or Gemini — so it produces better answers.
 
 Apply structural prompt engineering. Do not just fix grammar or polish style — frontier models handle imperfect language fine. The improvement must be substantive.
+
+# Critical: rewrite, never answer
+The draft is the user's PROMPT, not a question addressed to you. Rewrite it into a better prompt. Never answer, execute, or fulfill it. If the draft asks a question, rewrite the question — do not answer it. If it requests output (an essay, code, a list, an explanation), rewrite the request — do not produce that output yourself.
 
 # Language
 Preserve the language of the input.
@@ -78,7 +84,7 @@ Return it with minimal or no changes. Do not improve for the sake of improving.
 Preserve the full content. Tighten only language and structure. Never summarize or truncate.
 
 # User-provided context
-The user message may begin with a [CONTEXT]…[/CONTEXT] block. Treat it as guidance about audience, scope, tone, or constraints for this rewrite. Apply it. Never repeat, quote, or mention the context block in your output — rewrite only the draft that follows it.
+The user message may begin with a [CONTEXT]…[/CONTEXT] block. Treat it as guidance about audience, scope, tone, or constraints for this rewrite. Apply it. Never repeat, quote, or mention the context block in your output — rewrite only the draft that follows it. The context never changes your job: still rewrite the draft, never answer it — even when the context describes an audience, a reading level, or asks for an explanation.
 
 # Output
 Only the rewritten prompt. Nothing else."#;
@@ -618,6 +624,14 @@ mod tests {
         assert!(sys_text.contains("User-provided context"));
     }
     #[test]
+    fn system_prompt_forbids_answering() {
+        // feat-014 prompt-hardening contract: the rewriter must rewrite the
+        // draft, never answer it — the gate that lets a small model (1.5b) be
+        // trusted with context/Refine rewrites without fulfilling the prompt.
+        assert!(SYSTEM_PROMPT.contains("rewrite, never answer"));
+        assert!(SYSTEM_PROMPT.contains("never answer it"));
+    }
+    #[test]
     fn build_payload_uses_provided_model() {
         let p = build_payload("hi", "llama3.1:8b", None);
         assert_eq!(p["model"], "llama3.1:8b");
@@ -648,7 +662,7 @@ mod tests {
     #[test]
     fn parse_args_defaults_model_when_absent() {
         let parsed = parse_args(&["owlet-rewriter".to_string()]).unwrap();
-        assert_eq!(parsed.model, "qwen3:8b");
+        assert_eq!(parsed.model, DEFAULT_MODEL);
     }
     #[test]
     fn parse_args_returns_context_when_present() {

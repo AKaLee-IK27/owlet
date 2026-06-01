@@ -8,7 +8,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODEL="qwen3:8b"
+# feat-014: one model for rewriter + autocomplete (qwen2.5:1.5b, ~1 GB).
+MODEL="qwen2.5:1.5b"
 ZSHRC="$HOME/.zshrc"
 KEEP_ALIVE_LINE='export OLLAMA_KEEP_ALIVE=24h'
 HS_INIT="$HOME/.hammerspoon/init.lua"

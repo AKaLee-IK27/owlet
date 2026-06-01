@@ -2,8 +2,88 @@
 
 ## Current State
 
-**Last Updated:** 2026-05-29
-**Active Feature:** Bugfix/rework — region selector (screenshot capture) overhaul
+**Last Updated:** 2026-06-01
+**Active Feature:** feat-014 — single-model consolidation (CODE DONE, rewrite-quality user-verification pending). feat-013 remains the gate for the rest of the autocomplete track (user-only visual smoke pending).
+
+## feat-014 2026-06-01 — single-model consolidation + rewriter prompt-hardening (code done, quality-pending)
+
+**Shipped (code):** consolidated rewriter + autocomplete onto one model (`qwen2.5:1.5b`),
+gated on prompt-hardening that proves the rewriter **rewrites the draft, never answers it**.
+**NOT yet verified:** subjective rewrite *quality* at 1.5b vs the old qwen3:8b in the
+running GUI — the 8B→1.5B swap changes the README's "stable core," so it needs a human
+to bless the quality (or keep 8B for the rewriter). Status = `implemented-quality-pending`,
+parallel to feat-013. The smoke gate proves the *contract*, not taste.
+
+- **Prompt hardening** (`SYSTEM_PROMPT`): new `# Critical: rewrite, never answer`
+  section + a clause on the `[CONTEXT]` section that the context never turns the job
+  into answering (the exact feat-008 risk: explanatory context nudging toward an answer).
+- **Gate** (`tests/smoke.sh`, `OWLET_SMOKE_MODEL`-parameterized, bash-3.2-safe): three
+  behavioral assertions — (T4) rewrite-not-answer no-context (`whats the capital of france`
+  must NOT yield `Paris`); (T5) never-echo-context (marker absent); **(T6) rewrite-not-answer
+  UNDER explanatory `--context 'explain for a five year old'`** — T6 is the one that actually
+  probes feat-008's risk (T4/T5 alone don't). Clean on `qwen2.5:1.5b`: T4→`What is the
+  capital city of France?`, T6→`Explain to a five-year-old what the capital of France is.`,
+  marker never echoed. Also clean on qwen3:8b. Gate passed, so `DEFAULT_MODEL`
+  flipped qwen3:8b→qwen2.5:1.5b; bare-default smoke re-ran clean.
+- **Swept** every qwen3:8b reference: `install.sh` (one ~1 GB shared download),
+  `Preferences.swift` rewriter default + its test, README (×3), AGENTS.md (×3, incl.
+  flipping the "feat-014 not done" note), CLAUDE.md / init.sh / tools/rewriter/AGENTS.md
+  smoke prereqs.
+- **Verification:** Rust **50/50** (`cargo test`, +1 `system_prompt_forbids_answering`);
+  Swift **132/132** (`xcodebuild test`) after the Preferences default change; smoke gate
+  green on the candidate model and the new bare default.
+- **Out of scope / noted:** `OllamaModelLister`'s empty-list display fallback still
+  returns `["qwen3:8b"]` (a degraded picker fallback, not the rewriter default — feat-018).
+  NOT verified: subjective end-to-end rewrite quality at 1.5b in the running GUI (needs
+  install + a manual rewrite) — the gate proves the hardening contract, not taste.
+
+## Landing pass 2026-06-01 (feat-013) — code-side green, awaiting visual smoke
+
+**Goal:** get feat-013 to "landed." Did every code-side check that can run headless;
+the visual smoke + true end-to-end latency remain user-only (GUI + TCC grant).
+
+**Verified this session:**
+- Swift suite **132/132 pass** (`xcodebuild test -scheme Owlet -destination platform=macOS`).
+- **Model latency** (curl to Ollama `/api/generate`, Predictor's exact request shape —
+  `qwen2.5:1.5b`, num_predict 12, temp 0.2, stop `\n`, keep_alive 24h, 6 prefixes):
+  warm **p50=148ms, p90=163ms, max=164ms**; cold first-load 301ms (one-time). R1's
+  fragile assumption (tiny model ~150ms over Ollama) holds **on the model term**.
+  Caveat: this is model latency *alone* — real end-to-end adds the 120ms debounce +
+  AX read + overlay render, measurable only in the running app.
+
+**Doc drift resolved:** the "Separate remaining issue (mode 1, NOT fixed)" note below
+is **stale** — `AXBridge.caretCocoaRect` now carries the WebKit/Notes **AXTextMarker
+fallback** (`axTextMarkerCaretRect`) *and* an `AXFrame` `rectIsNearAnchor` validator.
+The branch exists in code but has **not been visually verified in a real WebKit app**;
+resolve by *seeing the ghost land*, not by assuming. Temp `caretgeom` diagnostic is
+**intentionally still in** per the original plan until the smoke confirms positioning.
+
+**Remaining gate (user-only):** `./install.sh` → re-grant Accessibility + Input
+Monitoring → enable Autocomplete → (1) **TextEdit single-display:** ghost at caret,
+Tab inserts at correct offset, Tab w/o suggestion passes through, Esc/typing dismisses,
+password field never predicts; (2) **Notes multi-monitor:** ghost at caret. If wrong,
+capture `log show --predicate 'subsystem == "co.greenpassport.owlet" AND category == "caretgeom"' --info`.
+**On pass:** remove the `caretgeom` diagnostic and flip feat-013 → done in one commit.
+
+## Ghost-text coordinate fix 2026-06-01 (feat-013)
+
+**Symptom (user):** ghost text never appeared at the caret / didn't follow typing.
+
+**Root cause:** `AXBridge.readCaretContext` returned the raw `kAXBoundsForRange` rect in **Quartz screen space** (top-left origin, y down); `GhostTextOverlay` then used it as **Cocoa** coords (bottom-left origin, y up) with no y-flip. The overlay landed at the vertically mirrored position and the existing `visibleFrame` clamp pinned it there. Confirmed against `FuJacob/cotabby` (`AXHelper.cocoaRect(fromAccessibilityRect:)`), which does the flip Owlet was missing. A second latent bug: `GhostTextOverlay`'s `NSScreen.first(where: frame.intersects(rect))` was comparing a Quartz rect against Cocoa frames, wrong screen on multi-monitor.
+
+**Fix (2 changes, both in `AXBridge.readCaretContext`):** (1) flip the caret rect to Cocoa coords at the boundary so `CaretContext.caretScreenRect` is already Cocoa, meaning `GhostTextOverlay` needs no change and the screen-pick is now correct. Flip against the **union of all screen frames' maxY** (multi-monitor safe), exposed as the pure helper `AXBridge.cocoaRect(fromAXRect:screenUnionMaxY:)`. (2) char-before-caret `BoundsForRange` fallback (trailing edge) for fields that return an empty rect for the zero-length caret query. Out of scope (spec R2 / feat-015/016): cotabby's textmarker, child-run, AXFrame branches and non-AX/Electron fields.
+
+**Verification:** `xcodebuild test … -only-testing AXBridgeGeometryTests -only-testing AutocompleteControllerTests` → **9/9 pass** (3 new flip tests: top→high Cocoa y, bottom→low, multi-monitor union anchor).
+
+**Manual result 2026-06-01: STILL BROKEN.** On a single built-in Retina display the ghost appears but **far from the caret**. Confirmed not a model/enable/Ollama problem (autocomplete enabled, `qwen2.5:1.5b` returns completions, running build has the flip). So the flip alone is not the full story on one display. Suspects: zero-length `kAXBoundsForRange` returning element-origin/`.zero` (falling to char-before), an unexpected coordinate space from TextEdit, or an X-axis (not Y) error. Added **temporary `caretgeom` diagnostic logging** in `AXBridge.caretCocoaRect` (raw zero/char rects, union maxY, main frame, converted Cocoa rect). NEXT: type in TextEdit, read `log show --predicate 'subsystem == "co.greenpassport.owlet" AND category == "caretgeom"' --info`, fix the mapping, then remove the diagnostic. Tracked in `session-handoff.md` → "Open bug".
+
+## Autocomplete implementation 2026-06-01 (feat-013)
+
+**Shipped in code:** default-off inline autocomplete for AX-native text fields. Added `Predicting` / `OllamaPredictor` (`/api/generate`, `qwen2.5:1.5b`, short raw completions), `AutocompleteController` (120 ms debounce, cancellation, password/bounds guards, Tab accept, Esc/typing dismiss), `GhostTextOverlay` (click-through non-activating ghost text panel), AX caret-context reads (`kAXValueAttribute`, `kAXSelectedTextRangeAttribute`, `kAXBoundsForRangeParameterizedAttribute`) plus `insertAtCaret`, Settings toggle + autocomplete model picker, and `HotkeyEventTap` text-change / Tab / Esc routing.
+
+**Verification:** Swift XCTest passed on 2026-06-01: `(cd Owlet && xcodebuild test -project Owlet.xcodeproj -scheme Owlet -destination 'platform=macOS')` → 125/125 tests pass. New coverage: debounce coalescing, superseded prediction cancellation, password-field and missing-caret-rect guards, accept insertion, default-off behavior, and Tab passthrough when no suggestion is visible.
+
+**Still pending — MANUAL:** enable Autocomplete in Settings, ensure `ollama pull qwen2.5:1.5b`, then verify TextEdit ghost text at caret → Tab inserts at the correct offset; Tab without a visible suggestion passes through; Esc/typing dismisses; password fields never predict; p50 latency ≤ ~200 ms; Notes/Mail/Safari/Pages caret bounds support/positioning list. If latency fails, switch the `Predicting` implementation to the MLX fallback from the design before expanding scope.
 
 ## Multi-monitor fix 2026-05-29: per-screen overlay windows (feat-006)
 
@@ -97,3 +177,15 @@ None.
 
 - The harness was bootstrapped this session via `/harness-creator`. If the structure feels heavy, prune — keep `feature_list.json` honest about what's actually in flight.
 - `.remember/` still holds session memory across runs; the harness's `progress.md` is for end-of-session checkpointing, not the running buffer.
+
+## 2026-06-01 — feat-013 ghost-text positioning hunt (root cause + fix)
+
+**Symptom:** inline autocomplete suggestion not rendered next to the caret in Apple Notes (multi-monitor setup).
+
+**Root cause (verified via os_log caretgeom diagnostic):** `AXBridge.cocoaRect(fromAXRect:)` flipped Quartz→Cocoa using the all-screens **union** maxY instead of the **primary** display's maxY. With an external monitor mounted *above* the laptop (primary `{0,0,1800,1169}` maxY=1169; external `{-552,1169,2560,1440}` maxY=2609; union=2609), every caret rect was flipped 1440px too high → overlay landed off the caret onto the wrong screen. Proof: identical raw AX bounds `(1288.65,269,0,16)` produced Cocoa y=884 (correct, on primary) when the external display was momentarily asleep (union==1169), and y=2324 (wrong) when union==2609.
+
+**Fix:** `AXBridge.swift` — flip now anchors on `primaryScreenMaxY()` (screen with `frame.origin == .zero`). Renamed pure-function param `screenUnionMaxY` → `primaryScreenMaxY`. Regression test `AXBridgeGeometryTests.test_flipAnchorsOnPrimaryNotUnion_externalMonitorAbove` reproduces the captured scenario. `xcodebuild test -only-testing:OwletTests/AXBridgeGeometryTests` → 3/3 pass.
+
+**Verification still pending:** real-app smoke in Notes on the multi-monitor rig (requires rebuild+install → re-grant Accessibility/Input Monitoring). Temp `caretgeom` diagnostic left in `AXBridge.caretCocoaRect` until verified, then remove.
+
+**Separate remaining issue (mode 1, NOT fixed):** in WebKit editors Notes/etc., `kAXBoundsForRange` sometimes returns a degenerate `(0,y,0,0)` rect (469/711 caretgeom samples → `chose=none`), so no suggestion shows at all. cotabby's `AXTextGeometryResolver` handles this with extra fallback branches (AXTextMarker caret rect, child AXStaticText proportional estimate, AXFrame estimate) + a `rectIsNearAnchor` validator. Porting those is a larger, separate change — needs user go-ahead.

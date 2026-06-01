@@ -50,9 +50,9 @@ tools/rewriter/
 # Unit tests
 (cd tools/rewriter && cargo test)
 
-# Smoke test (needs ollama serve + qwen3:8b)
+# Smoke test (needs ollama serve + qwen2.5:1.5b)
 (cd tools/rewriter && cargo build --release && bash tests/smoke.sh)
 
 # Quick run
-echo "Some text to rewrite" | cargo run --release -- --model qwen3:8b
+echo "Some text to rewrite" | cargo run --release -- --model qwen2.5:1.5b
 ```
