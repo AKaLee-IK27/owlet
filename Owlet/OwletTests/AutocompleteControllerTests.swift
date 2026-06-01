@@ -24,16 +24,18 @@ final class AutocompleteControllerTests: XCTestCase {
         private let lock = NSLock()
         var response = " world"
         var delayNanos: UInt64 = 0
-        private(set) var calls: [(prefix: String, model: String)] = []
+        private(set) var calls: [(prefix: String, model: String, maxTokens: Int)] = []
 
-        func suggest(prefix: String, model: String) async throws -> String {
+        func suggest(prefix: String, model: String, maxTokens: Int) async throws -> String {
             let snapshot = lock.withLock { () -> (UInt64, String) in
-                calls.append((prefix, model))
+                calls.append((prefix, model, maxTokens))
                 return (delayNanos, response)
             }
             if snapshot.0 > 0 { try await Task.sleep(nanoseconds: snapshot.0) }
             return snapshot.1
         }
+
+        var lastMaxTokens: Int? { lock.withLock { calls.last?.maxTokens } }
 
         var callCount: Int { lock.withLock { calls.count } }
     }
@@ -143,6 +145,24 @@ final class AutocompleteControllerTests: XCTestCase {
 
         XCTAssertEqual(predictor.callCount, 0)
         XCTAssertFalse(controller.suggestionVisible)
+    }
+
+    func test_maxTokensFromProviderReachesPredictor() async throws {
+        let ax = MockAX()
+        ax.focus = makeFocus()
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        let predictor = MockPredictor()
+        let controller = AutocompleteController(
+            ax: ax,
+            predictor: predictor,
+            enabledProvider: { true },
+            maxTokensProvider: { Preferences.SuggestionLength.long.maxTokens }
+        )
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertEqual(predictor.lastMaxTokens, 32)
     }
 
     func test_supersededPredictionDoesNotShowStaleResult() async throws {

@@ -113,6 +113,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .autocompleteModel:
             autocompleteController?.stop()
             hotkeyTap?.setAutocompleteSuggestionVisible(false)
+        case .suggestionLength:
+            // Nothing to do here — beginPrediction reads the token cap lazily on
+            // the next prediction; the next keystroke picks up the new length.
+            break
         }
     }
 

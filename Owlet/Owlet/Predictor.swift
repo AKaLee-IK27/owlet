@@ -1,7 +1,7 @@
 import Foundation
 
 protocol Predicting: Sendable {
-    func suggest(prefix: String, model: String) async throws -> String
+    func suggest(prefix: String, model: String, maxTokens: Int) async throws -> String
 }
 
 /// Tiny raw-completion client for autocomplete. Uses Ollama's `/api/generate`
@@ -22,7 +22,7 @@ struct OllamaPredictor: Predicting {
         self.session = session
     }
 
-    func suggest(prefix: String, model: String) async throws -> String {
+    func suggest(prefix: String, model: String, maxTokens: Int) async throws -> String {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -31,7 +31,7 @@ struct OllamaPredictor: Predicting {
             prompt: Self.prompt(for: prefix),
             stream: false,
             keepAlive: "24h",
-            options: Options(numPredict: 12, temperature: 0.2, stop: ["\n"])
+            options: Options(numPredict: maxTokens, temperature: 0.2, stop: ["\n"])
         ))
 
         let (data, response) = try await session.data(for: request)

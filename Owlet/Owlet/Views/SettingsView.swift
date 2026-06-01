@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var model: String = Preferences.shared.model
     @State private var autocompleteEnabled: Bool = Preferences.shared.autocompleteEnabled
     @State private var autocompleteModel: String = Preferences.shared.autocompleteModel
+    @State private var suggestionLength: Preferences.SuggestionLength = Preferences.shared.suggestionLength
     @State private var launchAtLogin: Bool = Preferences.shared.launchAtLogin
 
     @State private var models: [String] = []
@@ -80,6 +81,19 @@ struct SettingsView: View {
                         Text("Default: qwen2.5:1.5b. Autocomplete stays off until enabled.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                LabeledContent("Suggestion length") {
+                    Picker("", selection: $suggestionLength) {
+                        ForEach(Preferences.SuggestionLength.allCases, id: \.self) { length in
+                            Text(length.label).tag(length)
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(!autocompleteEnabled)
+                    .onChange(of: suggestionLength) { _, newValue in
+                        Preferences.shared.suggestionLength = newValue
                     }
                 }
 

@@ -34,6 +34,7 @@ final class AutocompleteController {
     private let overlay: GhostTextOverlaying
     private let modelProvider: @MainActor () -> String
     private let enabledProvider: @MainActor () -> Bool
+    private let maxTokensProvider: @MainActor () -> Int
     private let onVisibilityChanged: @MainActor (Bool) -> Void
 
     private var debounceTask: Task<Void, Never>?
@@ -53,12 +54,14 @@ final class AutocompleteController {
          overlay: GhostTextOverlaying = GhostTextOverlay(),
          modelProvider: @escaping @MainActor () -> String = { Preferences.shared.autocompleteModel },
          enabledProvider: @escaping @MainActor () -> Bool = { Preferences.shared.autocompleteEnabled },
+         maxTokensProvider: @escaping @MainActor () -> Int = { Preferences.shared.suggestionLength.maxTokens },
          onVisibilityChanged: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.ax = ax
         self.predictor = predictor
         self.overlay = overlay
         self.modelProvider = modelProvider
         self.enabledProvider = enabledProvider
+        self.maxTokensProvider = maxTokensProvider
         self.onVisibilityChanged = onVisibilityChanged
     }
 
@@ -111,6 +114,7 @@ final class AutocompleteController {
 
         let prefix = String(context.textBeforeCaret.suffix(Self.maxPrefixCharacters))
         let model = modelProvider()
+        let maxTokens = maxTokensProvider()
         let id = requestID + 1
         requestID = id
         focusedElement = focus.focusedElement
@@ -118,7 +122,7 @@ final class AutocompleteController {
         predictionTask?.cancel()
         predictionTask = Task { [weak self, predictor] in
             do {
-                let raw = try await predictor.suggest(prefix: prefix, model: model)
+                let raw = try await predictor.suggest(prefix: prefix, model: model, maxTokens: maxTokens)
                 let suggestion = Self.cleanSuggestion(raw, prefix: prefix)
                 await MainActor.run {
                     guard let self, self.requestID == id, let suggestion, !suggestion.isEmpty else { return }

@@ -66,6 +66,29 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(p2.autocompleteModel, "qwen2.5:0.5b")
     }
 
+    func test_suggestionLength_defaultsToMedium() {
+        let p = Preferences(defaults: defaults)
+        XCTAssertEqual(p.suggestionLength, .medium)
+    }
+
+    func test_suggestionLength_roundtrip() {
+        let p = Preferences(defaults: defaults)
+        p.suggestionLength = .long
+        let p2 = Preferences(defaults: defaults)
+        XCTAssertEqual(p2.suggestionLength, .long)
+    }
+
+    func test_suggestionLength_tokenMappingIsOrdered() {
+        // Caps must be distinct and strictly increasing so the picker is meaningful.
+        XCTAssertEqual(Preferences.SuggestionLength.short.maxTokens, 10)
+        XCTAssertEqual(Preferences.SuggestionLength.medium.maxTokens, 18)
+        XCTAssertEqual(Preferences.SuggestionLength.long.maxTokens, 32)
+        XCTAssertLessThan(Preferences.SuggestionLength.short.maxTokens,
+                          Preferences.SuggestionLength.medium.maxTokens)
+        XCTAssertLessThan(Preferences.SuggestionLength.medium.maxTokens,
+                          Preferences.SuggestionLength.long.maxTokens)
+    }
+
     func test_hotkey_change_posts_notification_with_hotkey_payload() {
         let p = Preferences(defaults: defaults)
         let exp = expectation(forNotification: Preferences.changedNotification, object: p) { note in

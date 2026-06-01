@@ -10,7 +10,30 @@ import os.log
 /// `UserDefaults` suite via the designated initialiser.
 final class Preferences: @unchecked Sendable {
 
-    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel }
+    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel, suggestionLength }
+
+    /// How long an inline autocomplete suggestion should run. Mapped to the
+    /// predict call's `num_predict` token cap (a cap, not an exact word count —
+    /// the predictor's `stop: ["\n"]` already truncates at the first line).
+    enum SuggestionLength: String, CaseIterable {
+        case short, medium, long
+
+        var maxTokens: Int {
+            switch self {
+            case .short:  return 10
+            case .medium: return 18
+            case .long:   return 32
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .short:  return "Short (a few words)"
+            case .medium: return "Medium"
+            case .long:   return "Long (a full phrase)"
+            }
+        }
+    }
 
     static let changedNotification = Notification.Name("OwletPreferencesChanged")
     static let shared = Preferences(defaults: .standard)
@@ -26,6 +49,7 @@ final class Preferences: @unchecked Sendable {
         static let visionModel          = "visionModel"
         static let autocompleteEnabled = "autocompleteEnabled"
         static let autocompleteModel   = "autocompleteModel"
+        static let suggestionLength    = "suggestionLength"
     }
 
     init(defaults: UserDefaults) {
@@ -96,6 +120,18 @@ final class Preferences: @unchecked Sendable {
         set {
             defaults.set(newValue, forKey: Key.autocompleteModel)
             post(.autocompleteModel)
+        }
+    }
+
+    var suggestionLength: SuggestionLength {
+        get {
+            guard let raw = defaults.string(forKey: Key.suggestionLength),
+                  let value = SuggestionLength(rawValue: raw) else { return .medium }
+            return value
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.suggestionLength)
+            post(.suggestionLength)
         }
     }
 
