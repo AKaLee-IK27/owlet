@@ -3,7 +3,29 @@
 ## Current State
 
 **Last Updated:** 2026-06-01
-**Active Feature:** none — feat-013 CLOSED (done) by user decision; selecting next feature.
+**Active Feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
+
+## feat-015 2026-06-01 (pm) — autocomplete coverage + controls (code complete)
+
+Spec/plan: `2026-06-01-autocomplete-coverage-{design,}.md`. Approved decisions
+D1 session-only pause · D2 default-allow+denylist · D3 num_predict 10/18/32 · D4 Int maxTokens.
+Five slices, one commit + tests each, positioning-independent first, word-by-word last:
+
+- **Slice 4 (presets):** `Preferences.SuggestionLength` → `num_predict`; threaded through
+  `Predicting.suggest` via injected `maxTokensProvider`; Settings Picker.
+- **Slice 5 (pause):** session-only in-memory pause (`AppDelegate.autocompletePaused`,
+  not persisted), checkable menu-bar "Pause Suggestions"; `pausedProvider` short-circuits.
+- **Slice 2 (denylist):** `Preferences.autocompleteDeniedApps`; `beginPrediction` gates on
+  `focus.appBundleID`; Settings lists running user apps as exclusion toggles.
+- **Slice 3 (non-AX degrade):** cache element with text-but-no-caret-bounds; skip re-read
+  until focus change (`CFEqual`).
+- **Slice 1 (word-by-word):** `splitIntoWordTokens` (lossless); Tab inserts next word +
+  re-anchors; AX-write gated (`.okAX` partial / `.okPaste` whole-then-stop).
+
+Swift suite **145/145** (+13 tests). Rust untouched. **Manual GUI smoke pending (user-only):**
+Settings picker + app toggles render; pause silences + resets on relaunch; Tab word-by-word
+in TextEdit; word-by-word re-anchor inherits feat-013's deferred caret positioning; the
+event-tap Tab-routing across partial accepts is runtime-only.
 
 > feat-013 closed on the strength of a visual TextEdit check (positioning + chip).
 > Tab-insert, password exclusion, Notes/WebKit, and multi-monitor were deferred,
