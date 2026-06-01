@@ -8,6 +8,8 @@
 mod proto;
 mod tier0_fst;
 mod tier1_symspell;
+#[cfg(feature = "tier2")]
+mod tier2_llm;
 
 use proto::{EngineMessage, HostMessage, Range, Tier, Trigger};
 use std::io::{self, BufReader, BufWriter, Read, Write};
@@ -24,30 +26,49 @@ const SUN_PATH_MAX: usize = 104;
 const WORDLIST_EN: &str = include_str!("words_en.txt");
 
 fn main() {
-    let Some(socket_path) = parse_socket_arg() else {
-        eprintln!("usage: owlet-engine --socket <path>");
+    let Some(args) = parse_args() else {
+        eprintln!("usage: owlet-engine --socket <path> [--model <gguf>] [--no-kv-cache]");
         std::process::exit(2);
     };
-    if let Err(e) = run(&socket_path) {
+    if let Err(e) = run(&args) {
         eprintln!("owlet-engine: fatal: {e}");
         std::process::exit(1);
     }
 }
 
-fn parse_socket_arg() -> Option<String> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if let Some(value) = arg.strip_prefix("--socket=") {
-            return Some(value.to_string());
-        }
-        if arg == "--socket" {
-            return args.next();
-        }
-    }
-    None
+struct Args {
+    socket: String,
+    /// GGUF path for Tier 2. Read only by the `tier2` model thread.
+    #[allow(dead_code)]
+    model: Option<String>,
+    /// Force full re-encode (the KV-cache correctness oracle, design §10). `tier2` only.
+    #[allow(dead_code)]
+    no_kv_cache: bool,
 }
 
-fn run(socket_path: &str) -> io::Result<()> {
+fn parse_args() -> Option<Args> {
+    let mut socket: Option<String> = None;
+    let mut model: Option<String> = None;
+    let mut no_kv_cache = false;
+    let mut it = std::env::args().skip(1);
+    while let Some(arg) = it.next() {
+        if arg == "--socket" {
+            socket = it.next();
+        } else if let Some(value) = arg.strip_prefix("--socket=") {
+            socket = Some(value.to_string());
+        } else if arg == "--model" {
+            model = it.next();
+        } else if let Some(value) = arg.strip_prefix("--model=") {
+            model = Some(value.to_string());
+        } else if arg == "--no-kv-cache" {
+            no_kv_cache = true;
+        }
+    }
+    socket.map(|socket| Args { socket, model, no_kv_cache })
+}
+
+fn run(args: &Args) -> io::Result<()> {
+    let socket_path = &args.socket;
     if socket_path.len() >= SUN_PATH_MAX {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -75,7 +96,7 @@ fn run(socket_path: &str) -> io::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if let Err(e) = handle_connection(&engine, stream) {
+                if let Err(e) = handle_connection(&engine, stream, args) {
                     eprintln!("owlet-engine: connection ended: {e}");
                 }
             }
@@ -145,10 +166,69 @@ impl Engine {
     }
 }
 
-fn handle_connection(engine: &Engine, stream: UnixStream) -> io::Result<()> {
+#[cfg(not(feature = "tier2"))]
+fn handle_connection(engine: &Engine, stream: UnixStream, _args: &Args) -> io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream);
     serve(engine, &mut reader, &mut writer)
+}
+
+/// Tier-2 connection handling: Tier 0/1 stay synchronous on this thread; Tier 2 (Pause/
+/// Hotkey) is dispatched to a dedicated model thread and answered asynchronously. The
+/// socket writer is shared behind a mutex so both threads can emit frames without
+/// interleaving. `latest_seq` coalesces/cancels Tier-2 work (newest request wins).
+#[cfg(feature = "tier2")]
+fn handle_connection(engine: &Engine, stream: UnixStream, args: &Args) -> io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
+    let latest_seq = Arc::new(AtomicU64::new(0));
+
+    // Spawn the model thread only when a model path was supplied.
+    let job_tx = args.model.clone().map(|model_path| {
+        let (tx, rx) = std::sync::mpsc::channel::<tier2_llm::Job>();
+        let writer = Arc::clone(&writer);
+        let latest_seq = Arc::clone(&latest_seq);
+        let no_kv_cache = args.no_kv_cache;
+        std::thread::spawn(move || {
+            tier2_llm::run_model_thread(model_path, no_kv_cache, rx, latest_seq, move |msg| {
+                if let Ok(mut guard) = writer.lock() {
+                    let _ = proto::write_msg(&mut *guard, &msg);
+                }
+            });
+        });
+        tx
+    });
+
+    while let Some(msg) = proto::read_msg::<_, HostMessage>(&mut reader)? {
+        match msg {
+            HostMessage::Ping => {
+                let mut guard = writer.lock().unwrap();
+                proto::write_msg(&mut *guard, &EngineMessage::Pong)?;
+            }
+            HostMessage::Shutdown => break,
+            HostMessage::Cancel { seq } => {
+                latest_seq.store(seq, Ordering::SeqCst); // supersede any in-flight Tier 2
+            }
+            HostMessage::ContextUpdate { seq, prefix, trigger, .. } => match trigger {
+                Trigger::Pause | Trigger::Hotkey => {
+                    latest_seq.store(seq, Ordering::SeqCst);
+                    if let Some(tx) = &job_tx {
+                        let _ = tx.send(tier2_llm::Job { seq, prefix });
+                    }
+                }
+                _ => {
+                    if let Action::Send(reply) = engine.suggest(seq, &prefix, trigger) {
+                        let mut guard = writer.lock().unwrap();
+                        proto::write_msg(&mut *guard, &reply)?;
+                    }
+                }
+            },
+        }
+    }
+    Ok(())
 }
 
 /// The protocol loop, generic over reader/writer so it can be unit-tested without a

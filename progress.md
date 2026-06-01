@@ -187,7 +187,30 @@ the suffix(1000) truncation). Belongs with the Host Tier-1 integration. Committe
   autocomplete Swift work):** real `replaceRange` AX behavior in apps + the correction-display UX
   (ghost-at-caret is a stopgap; a future refinement could highlight the misspelled word) verify in the
   Step 7 smoke. Tier 1 only runs under the engine backend (off by default, needs Step 7), so this
-  can't affect the shipped Ollama path. Committing on `feat/per-keystroke-engine`.
+  can't affect the shipped Ollama path. Committed (87acbd6).
+
+**Step 5 WRITTEN (Tier 2 llama-cpp-2 — code complete, tier2-build USER-PENDING):**
+`tools/engine/src/tier2_llm.rs` (feature-gated `tier2`): dedicated model thread owning the `!Send`
+llama context as a stack local; `complete()` does the KV-cache decode loop with ALL hardening
+corrections — LCP recomputed every call (BPE re-merge), `clear_kv_cache_seq` with the `Ok(false)`
+partial-trim check → full-clear+re-decode fallback, tokenization via the model's OWN `str_to_token`
+(not HF tokenizers), 512-token sliding window, greedy decode with per-step cancellation + newline/
+sentence-terminator/max-token stops, and a `--no-kv-cache` oracle path for the §10 equality test.
+`main.rs`: `--model`/`--no-kv-cache` args; feature-gated `handle_connection` spawns the model thread
++ shared mutex'd writer, dispatches Pause/Hotkey → model thread (coalesced via `latest_seq` Atomic),
+Cancel → supersede; Tier 0/1 stay synchronous. `Cargo.toml`: optional `llama-cpp-2` behind `tier2`.
+
+**Verified (default build only):** `cargo test` 32/32 + `clippy -D warnings` clean with tier2 OFF, and
+the optional dep is NOT compiled (no llama.cpp/Metal build) — the default path is untouched. **NOT
+done (your Mac):** the `tier2` feature is COMPILE-PENDING — I did not run `cargo build --features
+tier2` (it triggers the slow cmake/Metal llama.cpp build). Every version-sensitive call is tagged
+`// API:`; the first `cargo build --release --features tier2` will surface any binding mismatches to
+adjust. Then: wire the supervisor to pass `--model <gguf>` (Step 7), download a GGUF, and run the
+§10 KV-vs-oracle test (`OWLET_TEST_MODEL=… cargo test --features tier2 -- --ignored`).
+
+**=== feat-021 headless work COMPLETE. Remaining is all on-device: Step 5 tier2 build + Step 7
+packaging/signing/install.sh + caret capture + GUI smoke. ===** Committing Step 5 on
+`feat/per-keystroke-engine`.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.

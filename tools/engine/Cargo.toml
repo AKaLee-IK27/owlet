@@ -10,3 +10,12 @@ edition = "2021"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fst = "0.4"
+# Tier 2 only. Optional so the default build + `cargo test` stay fast and never invoke
+# llama.cpp's cmake/Metal build; pulled in only by the `tier2` feature.
+llama-cpp-2 = { version = "0.1.146", optional = true }
+
+[features]
+# LLM sentence completion (Tier 2). OFF by default. Build the real engine with:
+#   cargo build --release --features tier2
+# (requires a C/C++ toolchain + Metal; downloads/builds llama.cpp via the binding).
+tier2 = ["dep:llama-cpp-2"]
