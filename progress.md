@@ -3,7 +3,11 @@
 ## Current State
 
 **Last Updated:** 2026-06-01
-**Active Feature:** feat-013 — ghost-text readability landed; positioning accepted by user as good enough (see below). Notes / multi-monitor / Tab-insert smoke still pending.
+**Active Feature:** none — feat-013 CLOSED (done) by user decision; selecting next feature.
+
+> feat-013 closed on the strength of a visual TextEdit check (positioning + chip).
+> Tab-insert, password exclusion, Notes/WebKit, and multi-monitor were deferred,
+> NOT verified — that coverage now lives under feat-015.
 
 ## feat-013 2026-06-01 (pm) — readable ghost chip + diagnostics removed
 
