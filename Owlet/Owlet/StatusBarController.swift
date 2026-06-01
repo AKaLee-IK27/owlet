@@ -9,11 +9,17 @@ final class StatusBarController {
     private let statusItem: NSStatusItem
     private let probePermissions: () -> PermissionStatus
     private let onSettings: (() -> Void)?
+    private let isPaused: () -> Bool
+    private let onTogglePause: (() -> Void)?
 
     init(probePermissions: @escaping () -> PermissionStatus = { PermissionChecker.check() },
-         onSettings: (() -> Void)? = nil) {
+         onSettings: (() -> Void)? = nil,
+         isPaused: @escaping () -> Bool = { false },
+         onTogglePause: (() -> Void)? = nil) {
         self.probePermissions = probePermissions
         self.onSettings = onSettings
+        self.isPaused = isPaused
+        self.onTogglePause = onTogglePause
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         configureIcon()
         rebuildMenu()
@@ -58,6 +64,13 @@ final class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        let pause = NSMenuItem(title: "Pause Suggestions", action: #selector(handleTogglePause), keyEquivalent: "")
+        pause.target = self
+        pause.state = isPaused() ? .on : .off
+        menu.addItem(pause)
+
+        menu.addItem(NSMenuItem.separator())
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(handleSettings), keyEquivalent: ",")
         settings.keyEquivalentModifierMask = [.command]
         settings.target = self
@@ -78,6 +91,11 @@ final class StatusBarController {
 
     @objc private func handleSettings() {
         onSettings?()
+    }
+
+    @objc private func handleTogglePause() {
+        onTogglePause?()
+        rebuildMenu()
     }
 
     /// Reads the version + build from the app bundle's Info.plist.

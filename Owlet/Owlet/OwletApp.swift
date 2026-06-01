@@ -30,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var optionHoldDetector: OptionHoldDetector?
     private var floatingButtonController: FloatingButtonController?
     private var autocompleteController: AutocompleteController?
+    /// Session-only pause for inline suggestions (menu-bar toggle). Deliberately
+    /// not persisted — a pause that silently survives relaunch becomes a
+    /// "why are there no suggestions?" trap (feat-017 territory).
+    private var autocompletePaused = false
 
     /// Present Owlet's Settings window. Promotes activation policy to `.regular`
     /// so the window can take focus from a menu-bar app, and reverts to `.accessory`
@@ -61,9 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Inject showSettings as a closure — NSApp.delegate goes through SwiftUI's
         // NSApplicationDelegateAdaptor wrapper, so `as? AppDelegate` returns nil
         // and we can't reach this instance through the runtime delegate accessor.
-        self.statusBar = StatusBarController(onSettings: { [weak self] in
-            self?.showSettings()
-        })
+        self.statusBar = StatusBarController(
+            onSettings: { [weak self] in self?.showSettings() },
+            isPaused: { [weak self] in self?.autocompletePaused ?? false },
+            onTogglePause: { [weak self] in self?.toggleAutocompletePause() }
+        )
 
         prefsObserver = NotificationCenter.default.addObserver(
             forName: Preferences.changedNotification,
@@ -117,6 +123,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nothing to do here — beginPrediction reads the token cap lazily on
             // the next prediction; the next keystroke picks up the new length.
             break
+        }
+    }
+
+    /// Flip the session-only pause. When pausing, tear down any in-flight or
+    /// visible suggestion so the ghost disappears immediately.
+    private func toggleAutocompletePause() {
+        autocompletePaused.toggle()
+        if autocompletePaused {
+            autocompleteController?.stop()
+            hotkeyTap?.setAutocompleteSuggestionVisible(false)
         }
     }
 
@@ -180,9 +196,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.optionHoldDetector = detector
 
-        let autocomplete = AutocompleteController(onVisibilityChanged: { [weak self] visible in
-            self?.hotkeyTap?.setAutocompleteSuggestionVisible(visible)
-        })
+        let autocomplete = AutocompleteController(
+            pausedProvider: { [weak self] in self?.autocompletePaused ?? false },
+            onVisibilityChanged: { [weak self] visible in
+                self?.hotkeyTap?.setAutocompleteSuggestionVisible(visible)
+            }
+        )
         self.autocompleteController = autocomplete
 
         // Rewriter chord — defaults to Option+Space, user-configurable via Settings.

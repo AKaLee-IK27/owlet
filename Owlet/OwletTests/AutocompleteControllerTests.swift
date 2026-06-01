@@ -165,6 +165,25 @@ final class AutocompleteControllerTests: XCTestCase {
         XCTAssertEqual(predictor.lastMaxTokens, 32)
     }
 
+    func test_pausedDoesNotPredict() async throws {
+        let ax = MockAX()
+        ax.focus = makeFocus()
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        let predictor = MockPredictor()
+        let controller = AutocompleteController(
+            ax: ax,
+            predictor: predictor,
+            enabledProvider: { true },
+            pausedProvider: { true }
+        )
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 180_000_000)
+
+        XCTAssertEqual(predictor.callCount, 0)
+        XCTAssertFalse(controller.suggestionVisible)
+    }
+
     func test_supersededPredictionDoesNotShowStaleResult() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()
