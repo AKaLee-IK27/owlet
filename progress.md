@@ -19,12 +19,24 @@ emits a leading space the stop cuts to empty → no ghost. Verified by replaying
 request over many prefixes. The model is instruct-tuned and cannot distinguish a finished
 word (`the`) from a half-typed one (`th`), so the position split can't work.
 
-**Open / unverified:** user reported "nothing appears, even after a space." The
-continuation (trailing-space) path was byte-identical to pre-change code, so my commit
-can't kill suggestions *after a space* — if that persists after reinstalling the reverted
-build + **Restart Owlet**, it is a SEPARATE pre-existing issue (feat-013 positioning /
-TCC grant, never fully GUI-verified), needing a runtime-log hunt. Reliable word-completion
-is blocked on a better signal (dictionary gate, or a base/FIM model — feat-020).
+**"No ghost" — actual root cause (RESOLVED, separate from the word-mode change):**
+the stored `autocompleteModel` UserDefault was **`qwen3:8b`** (a thinking model). Under the
+autocomplete request shape (`num_predict:18`, `stop:["\n"]`) qwen3:8b returns an EMPTY
+`response`, so `OllamaPredictor.suggest` throws `.emptyResponse` and the controller hides
+the ghost on every keystroke — independent of caret position, which is why the revert and a
+fresh build didn't help. Verified by replaying the exact request (qwen3:8b → `''`;
+qwen2.5:1.5b → real completion) and `defaults read co.greenpassport.owlet autocompleteModel`.
+feat-014 reset the *code* default to qwen2.5:1.5b but the user's *persisted* pick stayed
+qwen3:8b. **Fix:** set Autocomplete model → qwen2.5:1.5b in Settings (or
+`defaults write co.greenpassport.owlet autocompleteModel -string qwen2.5:1.5b`).
+
+**Unswept sibling risk (silent failure):** an empty Ollama response (e.g. a thinking model,
+or a wrong/missing model) silently hides the ghost with zero user feedback, and the picker
+will happily select a thinking model. Hardening (filter/validate the autocomplete model, or
+surface "model returned nothing") belongs with feat-018/019 — NOT fixed here.
+
+Reliable word-completion remains blocked on a better signal (dictionary gate, or a
+base/FIM model — feat-020).
 
 ## feat-015 2026-06-01 (pm) — autocomplete coverage + controls (code complete)
 
