@@ -12,7 +12,12 @@ protocol GhostTextOverlaying: AnyObject {
 /// sole accept/dismiss path.
 @MainActor
 final class GhostTextOverlay: GhostTextOverlaying {
+    /// Padding between the chip's blurred edge and the suggestion text.
+    private static let hInset: CGFloat = 7
+    private static let vInset: CGFloat = 3
+
     private var panel: NSPanel?
+    private let backdrop = NSVisualEffectView()
     private let label = NSTextField(labelWithString: "")
 
     var isVisible: Bool { panel?.isVisible == true }
@@ -30,9 +35,14 @@ final class GhostTextOverlay: GhostTextOverlaying {
         label.stringValue = text
         label.sizeToFit()
 
-        let width = min(label.fittingSize.width, 420)
-        let height = label.fittingSize.height
+        // Wrap the text in a padded backdrop so the suggestion stays legible over
+        // any document content, rather than a faint label the user can't read.
+        let textWidth = min(label.fittingSize.width, 420)
+        let textHeight = label.fittingSize.height
+        let width = textWidth + Self.hInset * 2
+        let height = textHeight + Self.vInset * 2
         panel.setContentSize(NSSize(width: width, height: height))
+        label.frame = NSRect(x: Self.hInset, y: Self.vInset, width: textWidth, height: textHeight)
 
         // Sit just right of the caret, vertically centered on the caret line, so
         // the ghost shares the caret's baseline instead of floating above it.
@@ -65,16 +75,27 @@ final class GhostTextOverlay: GhostTextOverlaying {
         panel.ignoresMouseEvents = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        label.textColor = NSColor.secondaryLabelColor.withAlphaComponent(0.75)
+        // Rounded, blurred chip behind the text — native popover material so it
+        // reads on light and dark documents alike and tracks system appearance.
+        backdrop.material = .hudWindow
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+        backdrop.wantsLayer = true
+        backdrop.layer?.cornerRadius = 6
+        backdrop.layer?.masksToBounds = true
+
+        label.textColor = .secondaryLabelColor
         label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.alignment = .left
         label.backgroundColor = .clear
-        panel.contentView = label
+        label.drawsBackground = false
+        backdrop.addSubview(label)
+        panel.contentView = backdrop
 
         self.panel = panel
         return panel

@@ -202,39 +202,34 @@ enum AXBridge {
     /// none validate we still return the first geometrically usable rect, preserving
     /// behavior for fields that expose no `AXFrame` anchor.
     private static func caretCocoaRect(in element: AXUIElement, caretLocation: Int) -> NSRect? {
-        // TEMP DIAGNOSTIC (feat-013 ghost-position hunt) — remove after verifying.
-        let geom = Logger(subsystem: "co.greenpassport.owlet", category: "caretgeom")
         let anchor = elementCocoaFrame(element)
         var firstUsable: NSRect?
 
-        func evaluate(_ rect: NSRect, label: String) -> NSRect? {
+        // Accept a candidate caret rect only when it resolves near the focused
+        // field; remember the first computed rect as a last-resort fallback.
+        func validate(_ rect: NSRect) -> NSRect? {
             if firstUsable == nil { firstUsable = rect }
-            guard rectIsNearAnchor(rect, anchor: anchor) else { return nil }
-            geom.notice("chose=\(label, privacy: .public) cocoa=\(NSStringFromRect(rect), privacy: .public)")
-            return rect
+            return rectIsNearAnchor(rect, anchor: anchor) ? rect : nil
         }
 
         if let zero = axBounds(in: element, location: caretLocation, length: 0), zero.height > 0,
-           let r = evaluate(cocoaRect(fromAXRect: zero), label: "zero") {
+           let r = validate(cocoaRect(fromAXRect: zero)) {
             return r
         }
         if caretLocation > 0,
            let char = axBounds(in: element, location: caretLocation - 1, length: 1), char.height > 0 {
             // Trailing edge of the previous character ≈ caret position.
             let trailing = CGRect(x: char.maxX, y: char.origin.y, width: 0, height: char.height)
-            if let r = evaluate(cocoaRect(fromAXRect: trailing), label: "charBefore") { return r }
+            if let r = validate(cocoaRect(fromAXRect: trailing)) { return r }
         }
         if let marker = axTextMarkerCaretRect(in: element), marker.height > 0,
-           let r = evaluate(cocoaRect(fromAXRect: marker), label: "textMarker") {
+           let r = validate(cocoaRect(fromAXRect: marker)) {
             return r
         }
 
-        if let firstUsable {
-            geom.notice("chose=unvalidated cocoa=\(NSStringFromRect(firstUsable), privacy: .public) anchor=\(NSStringFromRect(anchor ?? .zero), privacy: .public)")
-            return firstUsable
-        }
-        geom.notice("chose=none anchor=\(NSStringFromRect(anchor ?? .zero), privacy: .public)")
-        return nil
+        // No candidate validated against the field anchor; fall back to the first
+        // rect we computed (nil when the field exposed no usable bounds at all).
+        return firstUsable
     }
 
     /// The focused element's `AXFrame` in Cocoa screen coordinates — the field

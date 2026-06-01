@@ -3,7 +3,53 @@
 ## Current State
 
 **Last Updated:** 2026-06-01
-**Active Feature:** feat-014 — single-model consolidation (CODE DONE, rewrite-quality user-verification pending). feat-013 remains the gate for the rest of the autocomplete track (user-only visual smoke pending).
+**Active Feature:** feat-013 — ghost-text readability landed; positioning accepted by user as good enough (see below). Notes / multi-monitor / Tab-insert smoke still pending.
+
+## feat-013 2026-06-01 (pm) — readable ghost chip + diagnostics removed
+
+User installed the diagnostic build, judged the caret positioning **acceptable**
+("seems ok") and asked for a readable background. Added a backdrop chip to
+`GhostTextOverlay`: the suggestion now sits inside a rounded (`cornerRadius 6`),
+blurred `NSVisualEffectView` (`.hudWindow` material) with 7×3 padding and a soft
+panel shadow, so it reads over any document instead of as faint grey text. Text
+stays `secondaryLabelColor` so it still looks like a suggestion, not committed text.
+
+User verified the chip visually ("that looks good") → **removed all temp
+`caretgeom` diagnostics** (the per-keystroke `rawZero`/`chose`/overlay-origin
+os_log lines in `AXBridge.caretCocoaRect` and `GhostTextOverlay.show`).
+`caretCocoaRect` rewritten to a clean `validate()` helper — behavior identical
+(validate-near-anchor, else first-computed-rect fallback, else nil). Swift suite
+**132/132 pass**; app build clean.
+
+**Still NOT verified (feat-013 stays out of "done"):** Tab accepts at correct
+offset, Tab passthrough w/o suggestion, Esc/typing dismiss, password-field
+exclusion, Notes/WebKit positioning, multi-monitor. The `isWebEditor` Notes
+discriminator remains a dead end (stash@{0}); revisit only if web-editor support
+is pursued.
+
+## feat-013 2026-06-01 — autocomplete positioning PARKED (two open bugs)
+
+Attempted a native-only ship (suppress WebKit, keep TextEdit). Manual smoke on the
+**external monitor** surfaced two bugs, both unresolved when parked:
+
+1. **Ghost one line too high — affects ALL apps, including native.** TextEdit logs
+   `web=false` and the ghost still renders ~one line *above* the caret; Notes too. This
+   is a constant ~one-line vertical offset, distinct from the earlier wrong-screen bug.
+   Sample (external): `chose=zero cocoa={{1400,2227},{0,17}}`. `GhostTextOverlay.show`
+   centers on `caretScreenRect.midY`, which *should* land on the caret line — so the
+   offset is either in the flip (`cocoaRect(fromAXRect:)` y ≈ one lineHeight too high)
+   or the overlay's vertical placement. **Not yet determined:** constant-vs-growing with
+   vertical position, or whether it also repros on the built-in display. This blocks
+   even the native-only ship.
+2. **`isWebEditor` (AXWebArea ancestor scan) does NOT detect Notes** — Notes logs
+   `web=false`, so the AXWebArea discriminator is wrong for Notes' AX tree. Native-only
+   suppression via AXWebArea is a dead end; fall back to a bundle-id denylist or
+   re-investigate Notes' role hierarchy.
+
+**Tree state:** experimental `isWebEditor` gate + `rawZero`/`web=` diagnostics stashed
+(`git stash` msg `feat-013 wip: isWebEditor gate + raw caret diagnostics`). Committed
+tree still carries the original `caretgeom` diagnostic. **Resume order:** fix bug (1)
+first (blocks all apps), then revisit the web discriminator for bug (2).
 
 ## feat-014 2026-06-01 — single-model consolidation + rewriter prompt-hardening (code done, quality-pending)
 
