@@ -149,7 +149,26 @@ Committed on `feat/per-keystroke-engine`: 2ab7d6f (engine+IPC), c5e9c71 (push se
 (streaming), + 3b-ii-b. **Remaining HEADLESS:** Step 6 (Tier 1 SymSpell, Rust) + Step 1 caret
 diagnostic CODE. **Remaining USER-GATED:** Step 5 (llama-cpp-2 Tier 2 — heavy Metal build + GGUF
 download), Step 7 (static-link packaging + sign + install.sh GGUF + README), caret-capture on both
-displays, full GUI smoke. Committing 3b-ii-b.
+displays, full GUI smoke. Committed 3b-ii-b (b604526).
+
+**Step 6 DONE (Tier 1 SymSpell recorrect, headless):** `tools/engine/src/tier1_symspell.rs` —
+`SpellCorrector` (brute-force bounded Levenshtein ≤2 over the dictionary, frequency-ranked; in-house
+rather than the `symspell` crate — fine for the ~130-word starter dict, upgrade path to precomputed
+deletes noted). `correct_last_word` extracts the just-finished word and, if not in the dictionary,
+returns the closest dict word + its `[start,end)` CHAR range in the prefix. Engine `suggest()` routes
+by trigger: `WordBoundary` → Tier 1 (Recorrect + replace_range), else → Tier 0.
+**Adversarial review (pr-review-toolkit, ~10M-pair Levenshtein fuzz) found 1 important bug, fixed:**
+macOS Smart Quotes emit U+2019, but the word-char test only knew the straight `'`, so `don’t ` split
+into a trailing `t` that got "corrected" to `to`. FIX: apostrophes (straight + smart) count only as
+INTERIOR word chars (flanked by alphanumerics) — keeps contractions whole, drops bracketing quotes;
+swept the sibling in `tier0_fst.rs` (fix the class). **Verified:** engine `cargo test` 32/32, `clippy
+-D warnings` clean (real exit 0), rewriter regression 50/50; real-socket smoke `wuld`→`would[4,8)`,
+`beacuse`→`because`, `don’t`/`don't`→no-correction, Tier 0 Keystroke still works.
+
+**Known follow-up (Host-side, not yet wired):** `AutocompleteController.receive` reads only
+`suggestion.text` and ignores `replaceRange`; consuming a Recorrect means replacing the
+`replace_range` span (mapping prefix CHAR offsets → field through `unicodeScalars`, accounting for
+the suffix(1000) truncation). Belongs with the Host Tier-1 integration. Committing Step 6.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.

@@ -81,13 +81,14 @@ impl WordCompleter {
     }
 }
 
-/// The trailing run of word characters in `prefix` (alphanumerics + apostrophe).
-/// Empty when `prefix` ends in whitespace or punctuation. ASCII-oriented for v1.
+/// The trailing run of word characters in `prefix` (alphanumerics + straight `'` and
+/// the macOS smart quote `\u{2019}`, so contractions stay whole). Empty when `prefix`
+/// ends in whitespace or punctuation.
 pub fn trailing_partial_word(prefix: &str) -> &str {
     let start = prefix
         .char_indices()
         .rev()
-        .take_while(|(_, c)| c.is_alphanumeric() || *c == '\'')
+        .take_while(|(_, c)| c.is_alphanumeric() || *c == '\'' || *c == '\u{2019}')
         .last()
         .map(|(i, _)| i)
         .unwrap_or(prefix.len());
@@ -117,6 +118,7 @@ mod tests {
         assert_eq!(trailing_partial_word("end."), "");
         assert_eq!(trailing_partial_word(""), "");
         assert_eq!(trailing_partial_word("don'"), "don'");
+        assert_eq!(trailing_partial_word("don\u{2019}"), "don\u{2019}"); // smart quote stays in word
         assert_eq!(trailing_partial_word("a"), "a");
     }
 

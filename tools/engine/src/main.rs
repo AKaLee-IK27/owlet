@@ -7,11 +7,13 @@
 
 mod proto;
 mod tier0_fst;
+mod tier1_symspell;
 
-use proto::{EngineMessage, HostMessage, Tier};
+use proto::{EngineMessage, HostMessage, Range, Tier, Trigger};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use tier0_fst::WordCompleter;
+use tier1_symspell::SpellCorrector;
 
 /// macOS `sockaddr_un.sun_path` holds ~104 bytes; bind() silently truncates a longer
 /// path, so we fail loud instead (design §5.4).
@@ -92,12 +94,14 @@ enum Action {
 
 struct Engine {
     completer: WordCompleter,
+    corrector: SpellCorrector,
 }
 
 impl Engine {
     fn new() -> Result<Self, fst::Error> {
         Ok(Self {
             completer: WordCompleter::from_wordlist(WORDLIST_EN)?,
+            corrector: SpellCorrector::from_wordlist(WORDLIST_EN),
         })
     }
 
@@ -105,19 +109,38 @@ impl Engine {
         match msg {
             HostMessage::Ping => Action::Send(EngineMessage::Pong),
             HostMessage::Shutdown => Action::Stop,
-            // No in-flight async work yet (Tier 0 is synchronous) — nothing to cancel.
+            // Tiers are synchronous today — nothing in flight to cancel (the Tier 2
+            // model loop and its cancel flag arrive with llama-cpp-2).
             HostMessage::Cancel { .. } => Action::Nothing,
-            HostMessage::ContextUpdate { seq, prefix, .. } => {
-                match self.completer.complete_prefix(&prefix) {
-                    Some(text) => Action::Send(EngineMessage::Suggestion {
-                        seq,
-                        tier: Tier::Complete,
-                        text,
-                        replace_range: None,
-                    }),
-                    None => Action::Nothing,
-                }
+            HostMessage::ContextUpdate { seq, prefix, trigger, .. } => {
+                self.suggest(seq, &prefix, trigger)
             }
+        }
+    }
+
+    /// Pick the tier by trigger: a word boundary asks Tier 1 to recorrect the word the
+    /// user just finished; any other trigger asks Tier 0 to complete the current word.
+    /// (Tier 2 on `Pause` lands with llama-cpp-2.)
+    fn suggest(&self, seq: u64, prefix: &str, trigger: Trigger) -> Action {
+        match trigger {
+            Trigger::WordBoundary => match self.corrector.correct_last_word(prefix) {
+                Some(correction) => Action::Send(EngineMessage::Suggestion {
+                    seq,
+                    tier: Tier::Recorrect,
+                    text: correction.text,
+                    replace_range: Some(Range { start: correction.start, end: correction.end }),
+                }),
+                None => Action::Nothing,
+            },
+            _ => match self.completer.complete_prefix(prefix) {
+                Some(text) => Action::Send(EngineMessage::Suggestion {
+                    seq,
+                    tier: Tier::Complete,
+                    text,
+                    replace_range: None,
+                }),
+                None => Action::Nothing,
+            },
         }
     }
 }
@@ -158,16 +181,24 @@ mod tests {
                 ("hello".to_string(), 70),
             ])
             .unwrap(),
+            corrector: SpellCorrector::from_pairs([
+                ("hello".to_string(), 100),
+                ("world".to_string(), 90),
+            ]),
         }
     }
 
     fn ctx(seq: u64, prefix: &str) -> HostMessage {
+        ctx_trigger(seq, prefix, Trigger::Keystroke)
+    }
+
+    fn ctx_trigger(seq: u64, prefix: &str, trigger: Trigger) -> HostMessage {
         HostMessage::ContextUpdate {
             seq,
             prefix: prefix.to_string(),
             suffix: String::new(),
             app_id: "test".to_string(),
-            trigger: Trigger::Keystroke,
+            trigger,
         }
     }
 
@@ -226,6 +257,26 @@ mod tests {
         assert!(responses(&test_engine(), &[ctx(1, "I am going ")]).is_empty());
         // Unknown word → no match.
         assert!(responses(&test_engine(), &[ctx(2, "xyzzy")]).is_empty());
+    }
+
+    #[test]
+    fn word_boundary_emits_tier1_recorrection() {
+        // "helo" → "hello" on a word boundary, replacing the misspelled span.
+        let out = responses(&test_engine(), &[ctx_trigger(5, "say helo ", Trigger::WordBoundary)]);
+        assert_eq!(
+            out,
+            vec![EngineMessage::Suggestion {
+                seq: 5,
+                tier: Tier::Recorrect,
+                text: "hello".to_string(),
+                replace_range: Some(Range { start: 4, end: 8 }),
+            }]
+        );
+    }
+
+    #[test]
+    fn word_boundary_silent_when_correctly_spelled() {
+        assert!(responses(&test_engine(), &[ctx_trigger(1, "hello ", Trigger::WordBoundary)]).is_empty());
     }
 
     #[test]
