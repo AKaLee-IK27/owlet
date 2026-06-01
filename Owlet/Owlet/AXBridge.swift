@@ -229,14 +229,6 @@ enum AXBridge {
     /// response in the wrong coordinate space can't drag the overlay off-screen. If
     /// none validate we still return the first geometrically usable rect, preserving
     /// behavior for fields that expose no `AXFrame` anchor.
-    /// Diagnostic logger for the deferred "ghost one line too high" investigation
-    /// (feat-013, hardening review). The flip/anchor formulas are NOT the bug (refuted
-    /// against code + git history), so this only OBSERVES — it logs the raw AX rect, the
-    /// flipped Cocoa rect, the chosen candidate, and the anchor, to be compared on both
-    /// the built-in and external display at several vertical positions. Capture with:
-    ///   log show --predicate 'subsystem=="co.greenpassport.owlet" AND category=="caretgeom"' --info --last 5m
-    private static let caretLog = Logger(subsystem: "co.greenpassport.owlet", category: "caretgeom")
-
     private static func caretCocoaRect(in element: AXUIElement, caretLocation: Int) -> NSRect? {
         let anchor = elementCocoaFrame(element)
         var firstUsable: NSRect?
@@ -247,35 +239,25 @@ enum AXBridge {
             if firstUsable == nil { firstUsable = rect }
             return rectIsNearAnchor(rect, anchor: anchor) ? rect : nil
         }
-        func finish(_ rect: NSRect?, chose: String) -> NSRect? {
-            caretLog.info("""
-                chose=\(chose, privacy: .public) loc=\(caretLocation, privacy: .public) \
-                primaryMaxY=\(primaryScreenMaxY(), privacy: .public) \
-                cocoa=\(rect.map { NSStringFromRect($0) } ?? "nil", privacy: .public) \
-                anchor=\(anchor.map { NSStringFromRect($0) } ?? "nil", privacy: .public)
-                """)
-            return rect
-        }
 
-        let zeroRaw = axBounds(in: element, location: caretLocation, length: 0)
-        caretLog.info("rawZero(quartz)=\(zeroRaw.map { NSStringFromRect($0) } ?? "nil", privacy: .public)")
-        if let zero = zeroRaw, zero.height > 0, let r = validate(cocoaRect(fromAXRect: zero)) {
-            return finish(r, chose: "zero")
+        if let zero = axBounds(in: element, location: caretLocation, length: 0), zero.height > 0,
+           let r = validate(cocoaRect(fromAXRect: zero)) {
+            return r
         }
         if caretLocation > 0,
            let char = axBounds(in: element, location: caretLocation - 1, length: 1), char.height > 0 {
             // Trailing edge of the previous character ≈ caret position.
             let trailing = CGRect(x: char.maxX, y: char.origin.y, width: 0, height: char.height)
-            if let r = validate(cocoaRect(fromAXRect: trailing)) { return finish(r, chose: "trailing") }
+            if let r = validate(cocoaRect(fromAXRect: trailing)) { return r }
         }
         if let marker = axTextMarkerCaretRect(in: element), marker.height > 0,
            let r = validate(cocoaRect(fromAXRect: marker)) {
-            return finish(r, chose: "marker")
+            return r
         }
 
         // No candidate validated against the field anchor; fall back to the first
         // rect we computed (nil when the field exposed no usable bounds at all).
-        return finish(firstUsable, chose: firstUsable == nil ? "none" : "fallback")
+        return firstUsable
     }
 
     /// The focused element's `AXFrame` in Cocoa screen coordinates — the field

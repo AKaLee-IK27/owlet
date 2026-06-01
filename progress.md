@@ -235,7 +235,25 @@ deferred caret bug). Two headless fixes:
 **Still needs the user:** select "Owlet engine" in Settings after re-install (fixes laggy + enables
 autocorrect); capture the `caretgeom` logs on both displays so the positioning bug can finally be
 fixed (affects both backends). Tier-0 completion is limited to the ~130-word starter dictionary
-until the dict grows or Tier 2 lands. Committing on `feat/per-keystroke-engine`.
+until the dict grows or Tier 2 lands. Committed (88f1b3c).
+
+## 2026-06-02 — caret positioning RESOLVED (feat-013 deferred bug closed)
+
+User re-installed (engine bundled), captured `caretgeom` on the main display, and confirmed the ghost
+now sits at the caret. Decoded sample: rawZero quartz `{1303.3,201,0,16}` → flip (primaryMaxY 1169) →
+cocoa `{1303.3,952,0,16}`; overlay placed `{1304.3,949}` size `{40.5,22}` → panel `[949,971]` centered
+on caret line `[952,968]`. **Correct.** The "one line too high" bug does NOT reproduce — the feat-013
+primary-maxY flip fix is working. **Removed the `caretgeom` diagnostic** from `AXBridge.caretCocoaRect`
+(back to the clean `validate()` version) + `GhostTextOverlay.show` (+ its `os.log` import); Swift
+182/182 still green. The `chose=none` samples (rawZero nil / `{0,0}`) are fields that don't expose
+caret bounds via `kAXBoundsForRange` → no ghost (the known degenerate-rect limitation, controller's
+unsupportedElement cache degrades cleanly). Multi-monitor not in this capture (all primaryMaxY=1169).
+
+**feat-021 user-confirmed working:** positioning ✓, cursor-after-Tab ✓ (fix shipped), engine bundled +
+selectable, Tier 0/1 reachable. **Remaining:** (a) Tier 2 LLM build (`--features tier2` + GGUF, their
+Mac) for rich suggestions — Tier 0 is limited to the ~130-word starter dict; (b) degenerate-rect "no
+ghost" fields (deferred, hard); (c) multi-monitor re-verify if it ever looks off on an external
+display. Committing diagnostic removal on `feat/per-keystroke-engine`.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
