@@ -44,6 +44,9 @@ final class AutocompleteController {
     private var requestID = 0
     private var focusedElement: AXUIElement?
     private var currentSuggestion: String?
+    /// The not-yet-accepted suggestion split into word tokens (each carries its
+    /// own leading whitespace so re-joining is lossless). Tab consumes one.
+    private var remainingWords: [String] = []
     /// A focused field that returned text but no caret bounds. Cached so we stop
     /// re-querying AX every keystroke for a field that can't position a ghost;
     /// cleared when focus moves to a different element.
@@ -91,10 +94,75 @@ final class AutocompleteController {
         }
     }
 
+    /// Tab accepts the next word of the suggestion. On AX-write fields we stay in
+    /// partial mode and re-anchor the remaining ghost; on the paste fallback we
+    /// can't (the synthetic Cmd+V re-enters our event tap), so we insert the rest
+    /// whole and finish — an explicit, documented degrade.
     func accept() {
-        guard suggestionVisible, let suggestion = currentSuggestion, let focusedElement else { return }
-        _ = ax.insertAtCaret(suggestion, in: focusedElement)
-        stop()
+        guard suggestionVisible, let focusedElement, !remainingWords.isEmpty else { return }
+
+        let next = remainingWords.removeFirst()
+        switch ax.insertAtCaret(next, in: focusedElement) {
+        case .okAX:
+            if remainingWords.isEmpty {
+                stop()
+            } else {
+                reshowRemainder(in: focusedElement)
+            }
+        case .okPaste, .failed:
+            if !remainingWords.isEmpty {
+                _ = ax.insertAtCaret(remainingWords.joined(), in: focusedElement)
+            }
+            stop()
+        }
+    }
+
+    /// Re-read the caret after a partial accept and redraw the remaining words.
+    /// If the field can't report caret bounds at the new position (e.g. a WebKit
+    /// degenerate rect — feat-013's deferred case), the accepted text stays and
+    /// the ghost simply ends.
+    private func reshowRemainder(in element: AXUIElement) {
+        let remainder = remainingWords.joined()
+        guard let context = ax.readCaretContext(from: element),
+              let rect = context.caretScreenRect else {
+            stop()
+            return
+        }
+        currentSuggestion = remainder
+        overlay.show(remainder, at: rect)
+        if suggestionVisible {
+            // didSet won't fire (already visible); the event tap cleared its
+            // "suggestion visible" flag on the accepted Tab, so re-assert it to
+            // keep the next Tab routed to accept.
+            onVisibilityChanged(true)
+        } else {
+            suggestionVisible = true
+        }
+    }
+
+    /// Split a suggestion into word tokens, each prefixed with its own leading
+    /// whitespace, so `tokens.joined() == input`. Leading spaces are semantically
+    /// important for inline insertion ("hello" + " world").
+    static func splitIntoWordTokens(_ input: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var inWord = false
+        for ch in input {
+            if ch == " " || ch == "\t" {
+                if inWord {
+                    tokens.append(current)
+                    current = String(ch)
+                    inWord = false
+                } else {
+                    current.append(ch)
+                }
+            } else {
+                current.append(ch)
+                inWord = true
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
     }
 
     func dismiss() {
@@ -108,6 +176,7 @@ final class AutocompleteController {
         predictionTask = nil
         focusedElement = nil
         currentSuggestion = nil
+        remainingWords = []
         hideSuggestion()
     }
 
@@ -159,6 +228,7 @@ final class AutocompleteController {
                 await MainActor.run {
                     guard let self, self.requestID == id, let suggestion, !suggestion.isEmpty else { return }
                     self.currentSuggestion = suggestion
+                    self.remainingWords = Self.splitIntoWordTokens(suggestion)
                     self.suggestionVisible = true
                     self.overlay.show(suggestion, at: rect)
                 }

@@ -10,6 +10,8 @@ final class AutocompleteControllerTests: XCTestCase {
         var password = false
         var context: CaretContext?
         var inserted: String?
+        private(set) var insertedAll: [String] = []
+        var insertResult: AXBridge.ReplaceResult = .okAX
         private(set) var readCount = 0
 
         func currentFocus() -> FocusSnapshot? { focus }
@@ -20,7 +22,8 @@ final class AutocompleteControllerTests: XCTestCase {
         }
         func insertAtCaret(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
             inserted = text
-            return .okAX
+            insertedAll.append(text)
+            return insertResult
         }
     }
 
@@ -248,6 +251,57 @@ final class AutocompleteControllerTests: XCTestCase {
         controller.textChanged()
         try await Task.sleep(nanoseconds: 180_000_000)
         XCTAssertEqual(ax.readCount, 2)
+    }
+
+    func test_splitIntoWordTokens_roundTrips() {
+        for input in [" world wide web", "hello world", "hi  there", "leading", " ", "trailing ", "a b c"] {
+            let tokens = AutocompleteController.splitIntoWordTokens(input)
+            XCTAssertEqual(tokens.joined(), input, "round-trip failed for \(input.debugDescription)")
+        }
+        XCTAssertEqual(AutocompleteController.splitIntoWordTokens(" one two"), [" one", " two"])
+        XCTAssertEqual(AutocompleteController.splitIntoWordTokens("hello world"), ["hello", " world"])
+    }
+
+    func test_wordByWordAcceptInsertsOneWordPerTabThenStops() async throws {
+        let ax = MockAX()
+        ax.focus = makeFocus()
+        ax.context = CaretContext(textBeforeCaret: "say", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        let predictor = MockPredictor()
+        predictor.response = " one two three"
+        let controller = AutocompleteController(ax: ax, predictor: predictor, enabledProvider: { true })
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        controller.accept()
+        XCTAssertEqual(ax.inserted, " one")
+        XCTAssertTrue(controller.suggestionVisible)
+        controller.accept()
+        XCTAssertEqual(ax.inserted, " two")
+        XCTAssertTrue(controller.suggestionVisible)
+        controller.accept()
+        XCTAssertEqual(ax.inserted, " three")
+
+        XCTAssertEqual(ax.insertedAll, [" one", " two", " three"])
+        XCTAssertFalse(controller.suggestionVisible)
+    }
+
+    func test_pasteFallbackAcceptsWholeSuggestionAtOnce() async throws {
+        let ax = MockAX()
+        ax.focus = makeFocus()
+        ax.context = CaretContext(textBeforeCaret: "say", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        ax.insertResult = .okPaste
+        let predictor = MockPredictor()
+        predictor.response = " a b c"
+        let controller = AutocompleteController(ax: ax, predictor: predictor, enabledProvider: { true })
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        controller.accept()
+        // First word pasted, then the remainder pasted whole; no partial mode.
+        XCTAssertEqual(ax.insertedAll, [" a", " b c"])
+        XCTAssertFalse(controller.suggestionVisible)
     }
 
     func test_supersededPredictionDoesNotShowStaleResult() async throws {
