@@ -10,10 +10,14 @@ final class AutocompleteControllerTests: XCTestCase {
         var password = false
         var context: CaretContext?
         var inserted: String?
+        private(set) var readCount = 0
 
         func currentFocus() -> FocusSnapshot? { focus }
         func isPasswordField(_ element: AXUIElement) -> Bool { password }
-        func readCaretContext(from element: AXUIElement) -> CaretContext? { context }
+        func readCaretContext(from element: AXUIElement) -> CaretContext? {
+            readCount += 1
+            return context
+        }
         func insertAtCaret(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
             inserted = text
             return .okAX
@@ -219,6 +223,31 @@ final class AutocompleteControllerTests: XCTestCase {
         try await Task.sleep(nanoseconds: 250_000_000)
 
         XCTAssertEqual(predictor.callCount, 1)
+    }
+
+    func test_unsupportedFieldReadOnceThenSkippedUntilFocusChange() async throws {
+        // Field returns text but no caret bounds → unsupported.
+        let appA = AXUIElementCreateApplication(91)
+        let ax = MockAX()
+        ax.focus = FocusSnapshot(appBundleID: "test", focusedElement: appA)
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: nil)
+        let predictor = MockPredictor()
+        let controller = AutocompleteController(ax: ax, predictor: predictor, enabledProvider: { true })
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 180_000_000)
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 180_000_000)
+
+        // Second keystroke is served from the unsupported cache — no re-read.
+        XCTAssertEqual(ax.readCount, 1)
+        XCTAssertEqual(predictor.callCount, 0)
+
+        // Focus a different element → cache resets, AX is read again.
+        ax.focus = FocusSnapshot(appBundleID: "test", focusedElement: AXUIElementCreateApplication(92))
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 180_000_000)
+        XCTAssertEqual(ax.readCount, 2)
     }
 
     func test_supersededPredictionDoesNotShowStaleResult() async throws {

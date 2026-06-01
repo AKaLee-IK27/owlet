@@ -44,6 +44,10 @@ final class AutocompleteController {
     private var requestID = 0
     private var focusedElement: AXUIElement?
     private var currentSuggestion: String?
+    /// A focused field that returned text but no caret bounds. Cached so we stop
+    /// re-querying AX every keystroke for a field that can't position a ghost;
+    /// cleared when focus moves to a different element.
+    private var unsupportedElement: AXUIElement?
 
     private(set) var suggestionVisible = false {
         didSet {
@@ -112,9 +116,30 @@ final class AutocompleteController {
         guard let focus = ax.currentFocus() else { hideSuggestion(); return }
         guard !deniedAppsProvider().contains(focus.appBundleID) else { hideSuggestion(); return }
         guard !ax.isPasswordField(focus.focusedElement) else { hideSuggestion(); return }
-        guard let context = ax.readCaretContext(from: focus.focusedElement),
-              let rect = context.caretScreenRect,
-              !context.textBeforeCaret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+
+        // Forget a stale "unsupported" mark once focus moves elsewhere.
+        if let unsupported = unsupportedElement, !CFEqual(unsupported, focus.focusedElement) {
+            unsupportedElement = nil
+        }
+        // A field we already know never returns caret bounds: don't re-read AX or
+        // predict on every keystroke — just stay quiet until focus changes.
+        if let unsupported = unsupportedElement, CFEqual(unsupported, focus.focusedElement) {
+            hideSuggestion()
+            return
+        }
+
+        guard let context = ax.readCaretContext(from: focus.focusedElement) else {
+            hideSuggestion()
+            return
+        }
+        guard let rect = context.caretScreenRect else {
+            // Text present but no caret bounds → mark unsupported so we degrade
+            // cleanly instead of thrashing AX every keystroke.
+            unsupportedElement = focus.focusedElement
+            hideSuggestion()
+            return
+        }
+        guard !context.textBeforeCaret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             hideSuggestion()
             return
         }
