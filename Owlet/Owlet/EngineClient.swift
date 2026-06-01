@@ -1,11 +1,15 @@
 import Foundation
 
-/// Blocking Unix-domain-socket client for the `owlet-engine` sidecar (feat-021,
-/// Step 3a). Connects, writes length-prefixed frames, and reads framed replies.
+/// Blocking Unix-domain-socket client for the `owlet-engine` sidecar (feat-021).
+/// Connects, writes length-prefixed frames, and reads framed replies.
 ///
-/// This is the low-level IPC unit: it is synchronous and meant to be driven from a
-/// background queue (a `Ping`/`Pong` health check, or — in Step 3b — a persistent
-/// read loop). The streaming integration and supersession logic live above it.
+/// Thread model: a background reader thread owns the read loop and is the *sole*
+/// closer of the descriptor. All access to `fd` goes through `fdLock`, and the blocking
+/// `read()` runs on a snapshot taken under that lock — so a sender on another thread,
+/// teardown, and the reader never race on the descriptor (TSan-clean), and the snapshot
+/// can never name a freed/reused fd (the owner only closes after its loop has exited).
+/// A read timeout lets the reader poll for teardown instead of being unblocked by a
+/// cross-thread `close()`.
 final class EngineClient {
     enum Failure: Error, Equatable {
         case pathTooLong(Int)
@@ -13,14 +17,15 @@ final class EngineClient {
         case notConnected
         case writeFailed(Int32)
         case readFailed(Int32)
+        case timedOut
     }
 
+    private let fdLock = NSLock()
     private var fd: Int32 = -1
-    /// Persists across reads so bytes for a not-yet-complete (or a following) frame
-    /// already pulled off the socket are not lost between `readMessage()` calls.
+    /// Touched only by the reader thread (in `readMessage`), so it needs no lock.
     private let buffer = FrameBuffer()
 
-    var isConnected: Bool { fd >= 0 }
+    var isConnected: Bool { fdLock.withLock { fd >= 0 } }
 
     /// Connect to a Unix domain socket. The path must fit `sockaddr_un.sun_path`
     /// (~104 bytes on macOS — the same limit the engine guards, design §5.4).
@@ -37,6 +42,9 @@ final class EngineClient {
         // Don't let a write to a dead engine raise SIGPIPE and kill the host process.
         var on: Int32 = 1
         setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        // Bound writes so a live-but-not-draining engine can't block a sender forever.
+        var sndTimeout = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sndTimeout, socklen_t(MemoryLayout<timeval>.size))
 
         addr.sun_family = sa_family_t(AF_UNIX)
         addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
@@ -58,47 +66,63 @@ final class EngineClient {
             Darwin.close(sock)
             throw Failure.connectFailed(err)
         }
-        fd = sock
+        fdLock.withLock { fd = sock }
     }
 
-    /// Write one length-prefixed message frame (blocks until fully written).
+    /// Bound `read()` so the reader can poll for teardown (a timed-out read throws
+    /// `.timedOut`, which the loop treats as "check the stop signal and retry").
+    func setReadTimeout(seconds: Double) {
+        let usec = Int32((seconds - Double(Int(seconds))) * 1_000_000)
+        var tv = timeval(tv_sec: Int(seconds), tv_usec: usec)
+        fdLock.withLock {
+            guard fd >= 0 else { return }
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        }
+    }
+
+    /// Write one length-prefixed message frame. Held under `fdLock` (frames are tiny
+    /// and `SO_SNDTIMEO` bounds the worst case) so it is atomic w.r.t. `close()`.
     func send(_ msg: HostMessage) throws {
-        guard fd >= 0 else { throw Failure.notConnected }
         let data = try EngineFraming.encodeFrame(msg)
-        try data.withUnsafeBytes { raw in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
-            var written = 0
-            while written < data.count {
-                let n = write(fd, base + written, data.count - written)
-                if n <= 0 { throw Failure.writeFailed(errno) }
-                written += n
+        try fdLock.withLock {
+            guard fd >= 0 else { throw Failure.notConnected }
+            try data.withUnsafeBytes { raw in
+                guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+                var written = 0
+                while written < data.count {
+                    let n = write(fd, base + written, data.count - written)
+                    if n <= 0 { throw Failure.writeFailed(errno) }
+                    written += n
+                }
             }
         }
     }
 
-    /// Block until the next complete message arrives. Returns nil on a clean EOF
-    /// (the engine closed the connection at a frame boundary).
+    /// Block until the next complete message arrives. Returns nil on a clean EOF.
+    /// Throws `.timedOut` when a read timeout (set via `setReadTimeout`) elapses with
+    /// no data, so the caller can re-check its stop signal.
     func readMessage() throws -> EngineMessage? {
         var chunk = [UInt8](repeating: 0, count: 8192)
         while true {
             if let msg = try buffer.nextEngineMessage() { return msg }
-            let n = read(fd, &chunk, chunk.count)
-            if n == 0 { return nil }
-            if n < 0 { throw Failure.readFailed(errno) }
+            let snapshotFD = fdLock.withLock { fd }
+            guard snapshotFD >= 0 else { return nil }
+            let n = read(snapshotFD, &chunk, chunk.count)
+            if n == 0 { return nil } // clean EOF
+            if n < 0 {
+                if errno == EAGAIN || errno == EWOULDBLOCK { throw Failure.timedOut }
+                throw Failure.readFailed(errno)
+            }
             buffer.append(Data(chunk[0..<n]))
         }
     }
 
-    /// Bound `read()` so a hung or dead engine can't block the caller forever.
-    /// On expiry `readMessage()` throws `readFailed` (errno `EAGAIN`).
-    func setReadTimeout(seconds: Double) {
-        guard fd >= 0 else { return }
-        var tv = timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - Double(Int(seconds))) * 1_000_000))
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-    }
-
+    /// Idempotent. Called by the reader thread that owns the read loop (after the loop
+    /// exits) and by `deinit`; never races a live `read()` because the owner only
+    /// closes once it has stopped reading.
     func close() {
-        if fd >= 0 {
+        fdLock.withLock {
+            guard fd >= 0 else { return }
             Darwin.close(fd)
             fd = -1
         }

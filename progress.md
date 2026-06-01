@@ -104,9 +104,31 @@ debug log.
 
 **Verified:** `xcodebuild test` 174/174 (rewrote AutocompleteControllerTests around a MockTransport;
 +OllamaTransportTests debounce/clean; +3 regression tests: stale-leak-after-suppression,
-lower-tier-no-regress, higher-tier-replaces). **Next: Step 3b-ii** — `SidecarTransport` (persistent
-`EngineClient` + background read loop pushing by seq) + OwletApp wiring + Settings engine/Ollama
-toggle. Then user-gated steps. Committing 3b-i on `feat/per-keystroke-engine`.
+lower-tier-no-regress, higher-tier-replaces). Committed 3b-i (c5e9c71).
+
+**Step 3b-ii-a DONE (streaming core + concurrency review):** `SidecarTransport.swift` = `EngineIO`
+(background reader thread per connection, lock+epoch discipline, reader is the SOLE closer of its
+fd, teardown via epoch bump + read-timeout self-exit) + `SidecarTransport` (@MainActor; spawns/
+supervises owlet-engine, streams Suggestions to the controller keyed by seq, `onReady` on handshake
+Pong, reconnect-on-drop). `EngineClient` reworked: all `fd` access under one `fdLock` (snapshot for
+the blocking read), `SO_SNDTIMEO`, read-timeout → `Failure.timedOut`.
+
+**Adversarial concurrency review (workflow wf_fb47d909, 5 agents) found 2 HIGH (both
+ThreadSanitizer-confirmed) + lower, ALL FIXED:** HIGH-1 = data race on `EngineClient.fd` (lockless
+reader read vs `close()` write under a different lock) → fix: single `fdLock` for all fd access +
+reader-sole-close + read-timeout teardown (no cross-thread close). HIGH-2 = handshake `ping` did an
+UNLOCKED `client.send` on the reader thread racing the locked `send` → fix: ping via the locked
+`send` path. Plus: epoch TOCTOU → `fireIfCurrent` (decide+dispatch under lock); reconnect not
+generation-guarded → `reconnectScheduled` guard + stale `onClosed` suppressed; `send` could block
+the main actor on a wedged engine → `SO_SNDTIMEO`; per-message `Task` reordering → FIFO
+`DispatchQueue.main.async` hops. (Reader-accumulation + retain-cycles verified clean.)
+
+**Verified:** `xcodebuild test` 175/175 (+`SidecarTransportIntegrationTests` spawns the REAL engine
+and streams a Tier-0 suggestion end-to-end); **`-enableThreadSanitizer YES` on both engine
+integration tests → 2/2 pass, ZERO races** (TSan previously aborted on HIGH-1). **Next: Step 3b-ii-b**
+— OwletApp constructs the chosen transport (engine vs Ollama) + Settings engine/Ollama toggle +
+model path. Then the user-gated batch (caret capture, llama-cpp-2 Tier 2 build+model,
+packaging/signing/GUI smoke). Committing 3b-ii-a on `feat/per-keystroke-engine`.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
