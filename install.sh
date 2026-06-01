@@ -222,7 +222,25 @@ if [ ! -d "$BUILT_APP" ]; then
   exit 1
 fi
 
-echo "==> Signing Owlet.app with '$CERT_NAME'"
+# ---------- Bundle the owlet-engine sidecar (feat-021) ----------
+# Default build = Tier 0 (instant word completion) + Tier 1 (recorrect); no llama.cpp.
+# For Tier 2 (LLM continuation) build with `--features tier2` (needs a GGUF + the
+# `--model` arg wired) — see docs/superpowers/plans/2026-06-01-per-keystroke-engine.md.
+# The engine is opt-in at runtime: Settings → "Suggestion engine: Owlet engine".
+echo "==> Building owlet-engine (Rust, release)"
+ENGINE_LOG="$(mktemp -t owlet-engine-build.XXXXXX)"
+if ! (cd "$HERE/tools/engine" && cargo build --release --quiet) > "$ENGINE_LOG" 2>&1; then
+  echo "ERROR: owlet-engine build failed. Last 60 lines of $ENGINE_LOG:" >&2
+  tail -60 "$ENGINE_LOG" >&2
+  exit 1
+fi
+rm -f "$ENGINE_LOG"
+mkdir -p "$BUILT_APP/Contents/Helpers"
+cp "$HERE/tools/engine/target/release/owlet-engine" "$BUILT_APP/Contents/Helpers/owlet-engine"
+
+# Sign the helper FIRST (bottom-up), then the app seals the bundle around it.
+echo "==> Signing owlet-engine + Owlet.app with '$CERT_NAME'"
+codesign --sign "$CERT_NAME" --force --options runtime "$BUILT_APP/Contents/Helpers/owlet-engine"
 codesign --sign "$CERT_NAME" --force --deep "$BUILT_APP"
 # Verify the signature is valid AND that we used the cert we expected.
 # If a stray identity with the same CN exists in the keychain, codesign may

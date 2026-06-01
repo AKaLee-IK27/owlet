@@ -209,8 +209,33 @@ adjust. Then: wire the supervisor to pass `--model <gguf>` (Step 7), download a 
 §10 KV-vs-oracle test (`OWLET_TEST_MODEL=… cargo test --features tier2 -- --ignored`).
 
 **=== feat-021 headless work COMPLETE. Remaining is all on-device: Step 5 tier2 build + Step 7
-packaging/signing/install.sh + caret capture + GUI smoke. ===** Committing Step 5 on
-`feat/per-keystroke-engine`.
+packaging/signing/install.sh + caret capture + GUI smoke. ===** Committed Step 5 (78d3976).
+
+## 2026-06-02 — user smoke feedback → 2 fixes (Step 7 partial + accept bug)
+
+User ran `make install` (default app, engine NOT bundled) and reported autocomplete "doesn't work
+well": ghost mispositioned, suggestions weird, laggy, no autocorrect, AND **cursor lands at the
+START of the word after Tab-accepting a completion**. Root cause of the broad complaints: the engine
+was never bundled, so they were on the old Ollama one-shot path (no Tier 1, 120ms debounce, the
+deferred caret bug). Two headless fixes:
+
+1. **Tab-accept cursor bug (root-caused + fixed):** `AXBridge.replaceSelection` set
+   `kAXSelectedTextAttribute` but never repositioned the caret — post-insert caret is app-dependent
+   and some fields drop it at the START of the inserted text. FIX: read the selection location
+   before the AX write, and on success set the caret (zero-length `kAXSelectedTextRange`) to
+   `location + text.utf16.count` (after the inserted text). New helpers `selectedRangeLocation` /
+   `setCaret`. Applies to both `insertAtCaret` (completion) and `replaceRange` (Tier 1). AX-runtime,
+   so GUI-verify on re-install (no mock-testable). Swift 182/182 still green.
+2. **install.sh now bundles the engine (Step 7 partial):** builds `owlet-engine` (release, default =
+   Tier 0/1, no llama), copies to `Owlet.app/Contents/Helpers/owlet-engine`, signs it (`--options
+   runtime`) then the app `--deep` seals it. Verified the engine release binary builds (713 KB,
+   self-contained). So the next `make install` ships the engine; Settings → "Owlet engine" makes it
+   live. (Tier 2 LLM still needs `--features tier2` + a GGUF + `--model` wiring.)
+
+**Still needs the user:** select "Owlet engine" in Settings after re-install (fixes laggy + enables
+autocorrect); capture the `caretgeom` logs on both displays so the positioning bug can finally be
+fixed (affects both backends). Tier-0 completion is limited to the ~130-word starter dictionary
+until the dict grows or Tier 2 lands. Committing on `feat/per-keystroke-engine`.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.

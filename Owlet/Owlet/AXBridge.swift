@@ -107,10 +107,21 @@ enum AXBridge {
         guard let current = currentFocus(), AXUIElementsEqual(current.focusedElement, element) else {
             return .failed("focus changed")
         }
+        // Where the selection begins now, so we can place the caret AFTER the inserted
+        // text. Setting kAXSelectedTextAttribute alone leaves the post-insert caret
+        // app-dependent — some fields drop it at the START of the inserted word — so we
+        // set it explicitly below.
+        let insertLocation = selectedRangeLocation(in: element)
+
         // 1) Try AX write.
         let cf: CFTypeRef = text as CFTypeRef
         let setErr = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, cf)
-        if setErr == .success { return .okAX }
+        if setErr == .success {
+            if let location = insertLocation {
+                setCaret(at: location + text.utf16.count, in: element)
+            }
+            return .okAX
+        }
 
         // 2) Clipboard + synthetic Cmd+V, with save/restore via ClipboardGuard.
         // The guard returns the same original across capture + replace cycles
@@ -132,6 +143,23 @@ enum AXBridge {
             ClipboardGuard.shared.cancelPendingRestore()
         }
         return pasted ? .okPaste : .failed("AX write + Cmd+V both failed")
+    }
+
+    /// UTF-16 location of the current selection/caret, or nil if unavailable.
+    private static func selectedRangeLocation(in element: AXUIElement) -> Int? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &ref) == .success,
+              let value = ref, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range) else { return nil }
+        return range.location
+    }
+
+    /// Place the caret (a zero-length selection) at a UTF-16 `location`.
+    private static func setCaret(at location: Int, in element: AXUIElement) {
+        var range = CFRange(location: location, length: 0)
+        guard let axValue = AXValueCreate(.cfRange, &range) else { return }
+        AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue)
     }
 
     // MARK: Focus helpers
