@@ -77,8 +77,36 @@ round-trips Ping→Pong + ContextUpdate→Tier0 `becaus`→`e` over a live UDS; 
 isn't built). Found+fixed during 3a: temp-socket path overflowed `sun_path` (validated the guard);
 read-timeout added so a hung engine can't block. **Next: Step 3b** (streaming `SuggestionTransport`
 + controller `receive(seq,suggestion)`, debounce → engine). Then user-gated steps (caret capture,
-llama-cpp-2 Tier 2 build+model, packaging/signing/GUI smoke). Committing this batch on
-`feat/per-keystroke-engine`.
+llama-cpp-2 Tier 2 build+model, packaging/signing/GUI smoke). Committed 3a on
+`feat/per-keystroke-engine` (2ab7d6f).
+
+**Step 3b-i DONE (push-transport seam + controller refactor + adversarial review):**
+`SuggestionTransport.swift` (push protocol: `updateContext(ContextRequest)` fire-and-forget +
+`onSuggestion(seq, TransportSuggestion)`; documents the per-seq non-decreasing-tier delivery
+contract). `OllamaTransport.swift` (wraps `OllamaPredictor`, owns the 120 ms debounce + Ollama
+output cleanup, pushes one Tier-0; the rollback path behind the Settings toggle). `AutocompleteController`
+refactored predictor→transport: `textChanged()` reads AX + sends a `ContextRequest` synchronously
+EVERY keystroke (no Swift debounce — moved to the transport/engine); `receive(seq:suggestion:)` shows
+only if `seq == requestID`. Ollama path unchanged underneath; OwletApp untouched (uses the new
+default transport).
+
+**Adversarial review (workflow wf_48e25a2c, 7 agents) found 1 HIGH, fixed:** guard early-returns in
+`beginPrediction` skipped the cancel+generation-bump (which the refactor had moved into
+`updateContext`, happy-path only), so an in-flight result for a superseded keystroke still matched
+`seq == requestID` and re-drew a ghost over changed text at a stale caret (empirically reproduced by
+two verifiers). FIX: `newGeneration()` (bump requestID + reset tier rank) runs at the TOP of
+`beginPrediction` before guards, and in `stop()`/`reshowRemainder`; `transport.cancel` too. Also
+folded in: tier-priority guard in `receive` (`shownTierRank`, spec §3 order) so a late lower tier
+can't regress a shown higher one (3b-ii readiness) + ordered-delivery contract doc; `OllamaTransport`
+cancellation-aware catch (`URLError.cancelled`/`CancellationError` silent; `badStatus`/`emptyResponse`
+→ `.error` so the no-ghost cause is diagnosable, cf f2ebbf3); `deinit { task?.cancel() }`; clean-empty
+debug log.
+
+**Verified:** `xcodebuild test` 174/174 (rewrote AutocompleteControllerTests around a MockTransport;
++OllamaTransportTests debounce/clean; +3 regression tests: stale-leak-after-suppression,
+lower-tier-no-regress, higher-tier-replaces). **Next: Step 3b-ii** — `SidecarTransport` (persistent
+`EngineClient` + background read loop pushing by seq) + OwletApp wiring + Settings engine/Ollama
+toggle. Then user-gated steps. Committing 3b-i on `feat/per-keystroke-engine`.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
