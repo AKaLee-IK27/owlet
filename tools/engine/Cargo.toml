@@ -1,0 +1,12 @@
+[package]
+name = "owlet-engine"
+version = "0.1.0"
+edition = "2021"
+
+# feat-021: per-keystroke inline-completion sidecar. Step 2 (skeleton) needs only
+# serde for the UDS protocol; fst / symspell / llama-cpp-2 are added in their own
+# build-order steps (design §9) so this stays a fast, GUI-free `cargo test`.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+fst = "0.4"

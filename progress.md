@@ -3,7 +3,85 @@
 ## Current State
 
 **Last Updated:** 2026-06-01
-**Active Feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
+**Active Feature:** feat-021 — per-keystroke inline-completion engine (Rust llama-cpp-2 sidecar). Approved + hardened; build order started.
+
+## feat-021 2026-06-01 — per-keystroke engine APPROVED + Step 2 (engine skeleton) shipped
+
+Spec `2026-06-01-per-keystroke-engine-design.md`, plan `2026-06-01-per-keystroke-engine.md`.
+Approved after a 6-claim adversarial hardening pass (workflow wf_70480b50-628, 12 agents).
+**Locked:** Rust `llama-cpp-2` sidecar over UDS (user runtime pick); **code model default**
+(Qwen2.5-Coder-1.5B — user overrule of the evidence, which recommended a general/base model
+since FIM is inert in a prefix-only pipeline; recorded in design §4, one-line picker swap).
+
+**Hardening corrections folded into the design (override the external spec):** (1) llama-cpp-2
+0.1.146 method is `clear_kv_cache_seq` NOT `kv_cache_seq_rm` (safe Rust); a boundary trim is a
+PARTIAL removal that can return `Ok(false)` = silent no-op → MUST check the bool; cancel = caller
+`AtomicBool` between synchronous decode steps. (2) LCP/n_past math MUST use llama.cpp's own
+`str_to_token`, NOT the HF `tokenizers` crate (silent KV desync). (3) Static-link ggml/llama
+(`-DBUILD_SHARED_LIBS=OFF`) → ZERO entitlement exceptions; no `allow-jit` (Metal compiles
+out-of-process); Owlet's self-signed "Owlet Developer" cert has no Team ID so the same-Team-ID LV
+escape hatch is unavailable. (4) Keep socket at `~/Library/Application Support/Owlet/engine.sock`
+(59<104 bytes); supervisor MUST `unlink()` before each respawn or crash recovery dies on
+EADDRINUSE; `Process`+`terminationHandler`. (5) Caret one-line-too-high is NOT in the flip/anchor
+formulas (refuted via code+git history) → diagnose the AX-rect data path on BOTH displays.
+
+**Step 2 done (engine skeleton, headless):** new standalone crate `tools/engine` (`owlet-engine`),
+deps serde+serde_json (fst added in Step 4; symspell/llama-cpp-2 deferred). `src/proto.rs`
+(message enums §6 + length-prefixed JSON framing, partial-read-safe, clean-EOF-vs-mid-frame, 4 MiB
+guard), `src/main.rs` (UDS listener, `unlink` stale + `sun_path<104` guard, `serve()`/`Engine`
+loop). Internally-tagged JSON (`{"type":...}`) for Swift `Codable` symmetry — confirmed over a real
+socket.
+
+**Step 4 done (Tier 0 fst word completion, headless):** `src/tier0_fst.rs` — `WordCompleter` over
+`fst::Map<u64>` (value=frequency). `trailing_partial_word` extracts the partial word at the caret;
+`complete_prefix` returns the suffix finishing the highest-frequency dictionary word with that
+prefix (`becaus`→`e`), else None on trailing space / unknown / exact / empty. Case-insensitive
+match, caret casing preserved. `src/words_en.txt` = ~130-word common-English starter dict
+(`include_str!`, line-order = frequency), expandable; personalization deferred. Pure prefix
+completion — Levenshtein fuzzy is a documented follow-up (kept out so a typo can't masquerade as a
+completion; that's Tier 1). `main.rs` `Engine` answers `ContextUpdate` with the Tier 0 completion
+(tier=Complete, no replace_range) or stays silent.
+
+**Verified (this batch):** `(cd tools/engine && cargo test)` 20/20; `cargo clippy --all-targets -D
+warnings` clean; real UDS smoke (python): `becaus`→`e`, `wel`→`l`, trailing-space/unknown silent;
+`(cd tools/rewriter && cargo test)` 50/50 (regression — rewriter untouched).
+
+**/check on this batch (clean):** worktree preflight + fresh verification (engine 20/20, clippy
+clean). One finding fixed (`safe_auto`): `tools/engine/` had no `.gitignore`, so `target/`
+artifacts showed untracked — added `.gitignore` (`target/` + `owlet-engine`; `Cargo.lock` stays
+tracked). Scope on target, no surprise deps, no hard stops.
+
+**Step 3 RESHAPED by advisor review (before any Swift written):** a drop-in `SidecarPredictor:
+Predicting` is WRONG — the cascade is multi-shot per `ContextUpdate` (Tier 0 now + Tier 2 later),
+so a one-shot `suggest() -> String` would drop Tier 2 or lose instant Tier 0, and behind the 120 ms
+Swift debounce delivers zero per-keystroke gain (a "phantom milestone"). Transport MUST be
+push/streaming. Split: **3a** = IPC unit (`EngineFraming`/`EngineClient`/`EngineSupervisor`: spawn +
+`terminationHandler` + unlink-before-respawn + ping/pong + one real round-trip; NO controller
+change, 145 Swift tests stay green). **3b** = streaming integration (`SuggestionTransport` push
+protocol; `textChanged()` sends `ContextUpdate` immediately, **debounce moves into the engine**;
+controller gains `receive(seq, suggestion)` on the existing requestID/seq gate; Ollama `Predicting`
+stays behind the Settings toggle as rollback; fake transport must push MULTIPLE results). Plan/design
+docs updated.
+
+**Step 3a DONE (IPC unit, headless + real round-trip):** `EngineProtocol.swift` (Codable mirror of
+`proto.rs` — internally-tagged `HostMessage`/`EngineMessage`, `Trigger`/`SuggestionTier`/
+`ReplaceRange`; `app_id`/`replace_range` wire keys; `EngineFraming` + `FrameBuffer` partial-read
+accumulator with the 4 MiB guard). `EngineClient.swift` (POSIX AF_UNIX client: `sun_path<104` guard,
+`SO_NOSIGPIPE`, `SO_RCVTIMEO` read timeout, persistent `FrameBuffer`). `EngineSupervisor.swift`
+(`Process` spawn + `terminationHandler`, **unlink-before-(re)spawn**, respawn-with-backoff,
+idempotent start, `stop()` suppresses respawn; injectable launch/unlink/schedule for tests;
+`@MainActor`-typed scheduler for Swift 6). NO `AutocompleteController` change. **Verified:**
+`xcodebuild test` **162/162** (145 prior untouched + 11 `EngineProtocolTests` + 5
+`EngineSupervisorTests` + 1 `EngineClientIntegrationTests` that spawns the REAL `owlet-engine` and
+round-trips Ping→Pong + ContextUpdate→Tier0 `becaus`→`e` over a live UDS; XCTSkips if the binary
+isn't built). Found+fixed during 3a: temp-socket path overflowed `sun_path` (validated the guard);
+read-timeout added so a hung engine can't block. **Next: Step 3b** (streaming `SuggestionTransport`
++ controller `receive(seq,suggestion)`, debounce → engine). Then user-gated steps (caret capture,
+llama-cpp-2 Tier 2 build+model, packaging/signing/GUI smoke). Committing this batch on
+`feat/per-keystroke-engine`.
+
+---
+**Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
 
 ## 2026-06-01 (eve) — word-aware suggestion modes ATTEMPTED then REVERTED (35ac18d)
 
