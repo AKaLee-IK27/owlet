@@ -5,6 +5,27 @@
 **Last Updated:** 2026-06-01
 **Active Feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
 
+## 2026-06-01 (eve) — word-aware suggestion modes ATTEMPTED then REVERTED (35ac18d)
+
+Tried splitting suggestions into continuation (trailing space) vs word-completion
+(mid-word) via `detectMode` + a per-mode Ollama `stop` set. **Reverted** `b4919df`
+after the installed build regressed.
+
+**Why it failed (root cause):** `detectMode` classed the *dominant* pause position —
+caret right after a just-finished word with **no trailing space** — as word-completion.
+Word mode (`stop:[" ","\n"]`) makes qwen2.5:1.5b emit a new word with **no leading
+space**, so the ghost glues onto the current word (`…the`→`cinema` = "thecinema"), or
+emits a leading space the stop cuts to empty → no ghost. Verified by replaying the exact
+request over many prefixes. The model is instruct-tuned and cannot distinguish a finished
+word (`the`) from a half-typed one (`th`), so the position split can't work.
+
+**Open / unverified:** user reported "nothing appears, even after a space." The
+continuation (trailing-space) path was byte-identical to pre-change code, so my commit
+can't kill suggestions *after a space* — if that persists after reinstalling the reverted
+build + **Restart Owlet**, it is a SEPARATE pre-existing issue (feat-013 positioning /
+TCC grant, never fully GUI-verified), needing a runtime-log hunt. Reliable word-completion
+is blocked on a better signal (dictionary gate, or a base/FIM model — feat-020).
+
 ## feat-015 2026-06-01 (pm) — autocomplete coverage + controls (code complete)
 
 Spec/plan: `2026-06-01-autocomplete-coverage-{design,}.md`. Approved decisions
