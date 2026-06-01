@@ -26,6 +26,7 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(p.launchAtLogin)
         XCTAssertFalse(p.autocompleteEnabled)
         XCTAssertEqual(p.autocompleteModel, "qwen2.5:1.5b")
+        XCTAssertEqual(p.autocompleteBackend, .ollama)
     }
 
     func test_hotkey_roundtrip() {
@@ -57,6 +58,22 @@ final class PreferencesTests: XCTestCase {
         p.autocompleteEnabled = true
         let p2 = Preferences(defaults: defaults)
         XCTAssertTrue(p2.autocompleteEnabled)
+    }
+
+    func test_autocompleteBackend_roundtrip() {
+        let p = Preferences(defaults: defaults)
+        p.autocompleteBackend = .engine
+        let p2 = Preferences(defaults: defaults)
+        XCTAssertEqual(p2.autocompleteBackend, .engine)
+    }
+
+    func test_autocompleteBackend_postsChange() {
+        let p = Preferences(defaults: defaults)
+        let exp = expectation(forNotification: Preferences.changedNotification, object: p) { note in
+            (note.userInfo?["change"] as? Preferences.Change) == .autocompleteBackend
+        }
+        p.autocompleteBackend = .engine
+        wait(for: [exp], timeout: 1)
     }
 
     func test_autocompleteModel_roundtrip() {

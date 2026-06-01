@@ -10,7 +10,21 @@ import os.log
 /// `UserDefaults` suite via the designated initialiser.
 final class Preferences: @unchecked Sendable {
 
-    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel, suggestionLength, autocompleteDeniedApps }
+    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel, suggestionLength, autocompleteDeniedApps, autocompleteBackend }
+
+    /// Which inference backend powers inline autocomplete. `ollama` (default) reuses
+    /// the one-shot HTTP path that is always available; `engine` uses the local
+    /// `owlet-engine` sidecar for per-keystroke streaming and needs the bundled helper.
+    enum AutocompleteBackend: String, CaseIterable {
+        case ollama, engine
+
+        var label: String {
+            switch self {
+            case .ollama: return "Ollama (default)"
+            case .engine: return "Owlet engine (per-keystroke)"
+            }
+        }
+    }
 
     /// How long an inline autocomplete suggestion should run. Mapped to the
     /// predict call's `num_predict` token cap (a cap, not an exact word count —
@@ -51,6 +65,7 @@ final class Preferences: @unchecked Sendable {
         static let autocompleteModel   = "autocompleteModel"
         static let suggestionLength    = "suggestionLength"
         static let autocompleteDeniedApps = "autocompleteDeniedApps"
+        static let autocompleteBackend = "autocompleteBackend"
     }
 
     init(defaults: UserDefaults) {
@@ -143,6 +158,20 @@ final class Preferences: @unchecked Sendable {
         set {
             defaults.set(Array(newValue).sorted(), forKey: Key.autocompleteDeniedApps)
             post(.autocompleteDeniedApps)
+        }
+    }
+
+    /// Inference backend for autocomplete. Defaults to `.ollama` (always available);
+    /// `.engine` requires the bundled `owlet-engine` helper.
+    var autocompleteBackend: AutocompleteBackend {
+        get {
+            guard let raw = defaults.string(forKey: Key.autocompleteBackend),
+                  let value = AutocompleteBackend(rawValue: raw) else { return .ollama }
+            return value
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.autocompleteBackend)
+            post(.autocompleteBackend)
         }
     }
 

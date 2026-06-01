@@ -30,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var optionHoldDetector: OptionHoldDetector?
     private var floatingButtonController: FloatingButtonController?
     private var autocompleteController: AutocompleteController?
+    /// Non-nil only while the engine backend is selected; owns the `owlet-engine`
+    /// process + streaming connection so it can be started on enable and torn down
+    /// on disable/backend-switch/quit.
+    private var sidecarTransport: SidecarTransport?
     /// Session-only pause for inline suggestions (menu-bar toggle). Deliberately
     /// not persisted — a pause that silently survives relaunch becomes a
     /// "why are there no suggestions?" trap (feat-017 territory).
@@ -59,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Terminate the engine process on a clean quit so it doesn't orphan.
+        sidecarTransport?.stop()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -112,10 +121,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // lazily on each invocation.
             break
         case .autocompleteEnabled:
-            if !Preferences.shared.autocompleteEnabled {
+            if Preferences.shared.autocompleteEnabled {
+                // Spawn the engine (if that's the backend) now that suggestions are on.
+                sidecarTransport?.start()
+            } else {
                 autocompleteController?.stop()
+                sidecarTransport?.stop() // kill the engine process while disabled
                 hotkeyTap?.setAutocompleteSuggestionVisible(false)
             }
+        case .autocompleteBackend:
+            // Rebuild on the newly selected transport (tears down any running engine).
+            installAutocomplete()
+            hotkeyTap?.setAutocompleteSuggestionVisible(false)
         case .autocompleteModel:
             autocompleteController?.stop()
             hotkeyTap?.setAutocompleteSuggestionVisible(false)
@@ -127,6 +144,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nothing to do here — beginPrediction reads the denylist lazily via
             // its deniedAppsProvider on the next prediction.
             break
+        }
+    }
+
+    /// (Re)build the autocomplete controller with the transport selected in
+    /// Preferences, tearing down any previous transport/engine. Spawns the sidecar
+    /// engine only when the engine backend is selected AND autocomplete is enabled,
+    /// so a default (Ollama) or disabled config never launches a helper process.
+    private func installAutocomplete() {
+        sidecarTransport?.stop()
+        sidecarTransport = nil
+        autocompleteController?.stop()
+
+        let transport: SuggestionTransport
+        switch Preferences.shared.autocompleteBackend {
+        case .engine:
+            let sidecar = SidecarTransport(config: EngineSupervisor.defaultConfig())
+            sidecarTransport = sidecar
+            transport = sidecar
+        case .ollama:
+            transport = OllamaTransport()
+        }
+
+        autocompleteController = AutocompleteController(
+            transport: transport,
+            pausedProvider: { [weak self] in self?.autocompletePaused ?? false },
+            onVisibilityChanged: { [weak self] visible in
+                self?.hotkeyTap?.setAutocompleteSuggestionVisible(visible)
+            }
+        )
+
+        if Preferences.shared.autocompleteEnabled {
+            sidecarTransport?.start()
         }
     }
 
@@ -200,20 +249,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.optionHoldDetector = detector
 
-        let autocomplete = AutocompleteController(
-            pausedProvider: { [weak self] in self?.autocompletePaused ?? false },
-            onVisibilityChanged: { [weak self] visible in
-                self?.hotkeyTap?.setAutocompleteSuggestionVisible(visible)
-            }
-        )
-        self.autocompleteController = autocomplete
+        installAutocomplete()
 
         // Rewriter chord — defaults to Option+Space, user-configurable via Settings.
         let rewriterTap = makeHotkeyTap(optionHoldDetector: detector)
         switch rewriterTap.start() {
         case .success:
             self.hotkeyTap = rewriterTap
-            rewriterTap.setAutocompleteSuggestionVisible(autocomplete.suggestionVisible)
+            rewriterTap.setAutocompleteSuggestionVisible(autocompleteController?.suggestionVisible ?? false)
             Self.logger.info("Rewriter hotkey tap active")
         case .failure:
             // Should be rare since PermissionChecker said all granted; defensive

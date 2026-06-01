@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var isRecording: Bool = false
     @State private var model: String = Preferences.shared.model
     @State private var autocompleteEnabled: Bool = Preferences.shared.autocompleteEnabled
+    @State private var autocompleteBackend: Preferences.AutocompleteBackend = Preferences.shared.autocompleteBackend
     @State private var autocompleteModel: String = Preferences.shared.autocompleteModel
     @State private var suggestionLength: Preferences.SuggestionLength = Preferences.shared.suggestionLength
     @State private var deniedApps: Set<String> = Preferences.shared.autocompleteDeniedApps
@@ -67,6 +68,24 @@ struct SettingsView: View {
                         .onChange(of: autocompleteEnabled) { _, newValue in
                             Preferences.shared.autocompleteEnabled = newValue
                         }
+                }
+
+                LabeledContent("Suggestion engine") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $autocompleteBackend) {
+                            ForEach(Preferences.AutocompleteBackend.allCases, id: \.self) { backend in
+                                Text(backend.label).tag(backend)
+                            }
+                        }
+                        .labelsHidden()
+                        .disabled(!autocompleteEnabled)
+                        .onChange(of: autocompleteBackend) { _, newValue in
+                            Preferences.shared.autocompleteBackend = newValue
+                        }
+                        Text("Ollama is always available. The Owlet engine streams per-keystroke (needs the bundled helper).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 LabeledContent("Autocomplete model") {

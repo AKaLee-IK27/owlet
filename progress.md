@@ -128,7 +128,28 @@ and streams a Tier-0 suggestion end-to-end); **`-enableThreadSanitizer YES` on b
 integration tests → 2/2 pass, ZERO races** (TSan previously aborted on HIGH-1). **Next: Step 3b-ii-b**
 — OwletApp constructs the chosen transport (engine vs Ollama) + Settings engine/Ollama toggle +
 model path. Then the user-gated batch (caret capture, llama-cpp-2 Tier 2 build+model,
-packaging/signing/GUI smoke). Committing 3b-ii-a on `feat/per-keystroke-engine`.
+packaging/signing/GUI smoke). Committed 3b-ii-a (dbf06b4).
+
+**Step 3b-ii-b DONE (engine wired into the app):** `Preferences.AutocompleteBackend` (`ollama` default
+/ `engine`) + `autocompleteBackend` pref + `Change.autocompleteBackend`. `OwletApp.installAutocomplete()`
+builds the chosen transport (Ollama or `SidecarTransport`), owns `sidecarTransport`, and spawns the
+engine ONLY when backend==engine AND autocomplete enabled. Lifecycle: `.autocompleteEnabled` →
+start/stop the engine; `.autocompleteBackend` → rebuild; `applicationWillTerminate` → stop (no orphan
+on clean quit). `SettingsView` gains a "Suggestion engine" picker. Engine default OFF + Ollama default
+keeps autocomplete working until the helper is bundled (Step 7); selecting engine before then spawns a
+missing `Contents/Helpers/owlet-engine` → spawn fails gracefully (no crash, no suggestions).
+
+**Reviewed:** single focused lifecycle reviewer (pr-review-toolkit:code-reviewer) traced all 6
+sequences (launch/enable/disable→re-enable/backend-switch/quit/double-spawn) → **clean, no findings
+≥80%**; confirmed re-enable respawns (started/stopping flags reset), backend-switch tears down, Settings
+write-through works. **Verified:** `xcodebuild test` 177/177 (+2 backend Preferences tests).
+
+**=== Headless streaming MVP COMPLETE: engine streams Tier-0 per-keystroke, selectable in-app. ===**
+Committed on `feat/per-keystroke-engine`: 2ab7d6f (engine+IPC), c5e9c71 (push seam), dbf06b4
+(streaming), + 3b-ii-b. **Remaining HEADLESS:** Step 6 (Tier 1 SymSpell, Rust) + Step 1 caret
+diagnostic CODE. **Remaining USER-GATED:** Step 5 (llama-cpp-2 Tier 2 — heavy Metal build + GGUF
+download), Step 7 (static-link packaging + sign + install.sh GGUF + README), caret-capture on both
+displays, full GUI smoke. Committing 3b-ii-b.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
