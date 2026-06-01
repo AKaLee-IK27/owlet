@@ -168,7 +168,26 @@ swept the sibling in `tier0_fst.rs` (fix the class). **Verified:** engine `cargo
 **Known follow-up (Host-side, not yet wired):** `AutocompleteController.receive` reads only
 `suggestion.text` and ignores `replaceRange`; consuming a Recorrect means replacing the
 `replace_range` span (mapping prefix CHAR offsets → field through `unicodeScalars`, accounting for
-the suffix(1000) truncation). Belongs with the Host Tier-1 integration. Committing Step 6.
+the suffix(1000) truncation). Belongs with the Host Tier-1 integration. Committed Step 6 (69f6fe8).
+
+**Two headless follow-ups DONE (Step 1 caret diagnostic + Host Tier-1 consumption):**
+- **Caret diagnostic:** re-added `caretgeom` os_log — `AXBridge.caretCocoaRect` logs the raw Quartz
+  rect + chosen Cocoa rect + primaryMaxY + anchor + which candidate; `GhostTextOverlay.show` logs the
+  caret rect it got + where the panel landed. Flip/anchor formulas UNTOUCHED (refuted as the bug).
+  Capture on both displays: `log show --predicate 'subsystem=="co.greenpassport.owlet" AND
+  category=="caretgeom"' --info --last 5m`.
+- **Host Tier-1 consumption:** `AXBridge.replaceRange(NSRange,with:in:)` (select range → reuse
+  `replaceSelection`'s AX-write+paste fallback). Controller now sends `.wordBoundary` trigger when the
+  prefix ends at a boundary (else `.keystroke`); a received Recorrect locates the word span in the
+  Host's OWN `currentTextBeforeCaret` via `lastCompletedWordUTF16Range` (UTF-16/AX units, matching the
+  engine's word rule incl. smart-quote interior apostrophes — NO cross-language scalar-offset trust),
+  shows the correction as ghost (provisional UX), and `accept()` REPLACES that span instead of
+  appending. **Verified:** `xcodebuild test` 182/182 (+5: recorrect-accept-replaces-span, both trigger
+  directions, endsAtWordBoundary, lastCompletedWordUTF16Range). **GUI-PENDING (consistent with all the
+  autocomplete Swift work):** real `replaceRange` AX behavior in apps + the correction-display UX
+  (ghost-at-caret is a stopgap; a future refinement could highlight the misspelled word) verify in the
+  Step 7 smoke. Tier 1 only runs under the engine backend (off by default, needs Step 7), so this
+  can't affect the shipped Ollama path. Committing on `feat/per-keystroke-engine`.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.

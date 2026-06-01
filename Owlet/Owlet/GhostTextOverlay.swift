@@ -1,4 +1,5 @@
 import AppKit
+import os.log
 
 @MainActor
 protocol GhostTextOverlaying: AnyObject {
@@ -19,6 +20,11 @@ final class GhostTextOverlay: GhostTextOverlaying {
     private var panel: NSPanel?
     private let backdrop = NSVisualEffectView()
     private let label = NSTextField(labelWithString: "")
+
+    /// Diagnostic for the deferred caret-positioning bug (feat-013): logs the caret
+    /// rect we were handed and where the panel actually landed, paired with AXBridge's
+    /// `caretgeom` line for the same keystroke.
+    private static let caretLog = Logger(subsystem: "co.greenpassport.owlet", category: "caretgeom")
 
     var isVisible: Bool { panel?.isVisible == true }
 
@@ -52,6 +58,11 @@ final class GhostTextOverlay: GhostTextOverlaying {
             origin.x = min(origin.x, screen.visibleFrame.maxX - width - 4)
             origin.y = max(screen.visibleFrame.minY + 4, min(origin.y, screen.visibleFrame.maxY - height - 4))
         }
+        Self.caretLog.info("""
+            overlay caret=\(NSStringFromRect(caretScreenRect), privacy: .public) \
+            placed=\(NSStringFromPoint(origin), privacy: .public) \
+            size=\(NSStringFromSize(NSSize(width: width, height: height)), privacy: .public)
+            """)
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
     }

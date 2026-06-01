@@ -25,6 +25,14 @@ final class AutocompleteControllerTests: XCTestCase {
             insertedAll.append(text)
             return insertResult
         }
+
+        private(set) var replacedRange: NSRange?
+        private(set) var replacedText: String?
+        func replaceRange(_ range: NSRange, with text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
+            replacedRange = range
+            replacedText = text
+            return insertResult
+        }
     }
 
     /// A push transport the test drives directly: it records the requests the
@@ -209,6 +217,65 @@ final class AutocompleteControllerTests: XCTestCase {
         transport.push(seq: seq, " word", tier: .complete)
         XCTAssertEqual(overlay.shownText, " a full sentence")
         XCTAssertTrue(controller.suggestionVisible)
+    }
+
+    // MARK: - Tier 1 recorrection
+
+    func test_recorrectAcceptReplacesTheWordSpan() {
+        let ax = MockAX(); ax.focus = makeFocus()
+        ax.context = CaretContext(textBeforeCaret: "the peple ",
+                                  caretScreenRect: NSRect(x: 10, y: 10, width: 1, height: 18))
+        let transport = MockTransport(); let overlay = MockOverlay()
+        let controller = makeController(ax: ax, transport: transport, overlay: overlay)
+
+        controller.textChanged()
+        // The engine sends a recorrection (replaces "peple" → "people").
+        transport.push(seq: transport.lastSeq!, "people", tier: .recorrect)
+        XCTAssertEqual(overlay.shownText, "people")
+
+        controller.accept()
+        // "peple" is UTF-16 range [4, 5-len) in "the peple " → location 4, length 5.
+        XCTAssertEqual(ax.replacedRange, NSRange(location: 4, length: 5))
+        XCTAssertEqual(ax.replacedText, "people")
+        XCTAssertNil(ax.inserted, "a recorrection must replace, not insert at the caret")
+        XCTAssertFalse(controller.suggestionVisible)
+    }
+
+    func test_wordBoundaryPrefixSendsWordBoundaryTrigger() {
+        let ax = MockAX(); ax.focus = makeFocus()
+        ax.context = CaretContext(textBeforeCaret: "the peple ",
+                                  caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        let transport = MockTransport()
+        let controller = makeController(ax: ax, transport: transport)
+
+        controller.textChanged()
+        XCTAssertEqual(transport.requests.last?.trigger, .wordBoundary)
+    }
+
+    func test_midWordPrefixSendsKeystrokeTrigger() {
+        let ax = MockAX(); ax.focus = makeFocus(); ax.context = contextAt("hello")
+        let transport = MockTransport()
+        let controller = makeController(ax: ax, transport: transport)
+
+        controller.textChanged()
+        XCTAssertEqual(transport.requests.last?.trigger, .keystroke)
+    }
+
+    func test_endsAtWordBoundary() {
+        XCTAssertTrue(AutocompleteController.endsAtWordBoundary("hello "))
+        XCTAssertTrue(AutocompleteController.endsAtWordBoundary("end."))
+        XCTAssertFalse(AutocompleteController.endsAtWordBoundary("hello"))
+        XCTAssertFalse(AutocompleteController.endsAtWordBoundary("don't"))
+        XCTAssertFalse(AutocompleteController.endsAtWordBoundary(""))
+    }
+
+    func test_lastCompletedWordUTF16Range() {
+        XCTAssertEqual(AutocompleteController.lastCompletedWordUTF16Range(in: "the peple "),
+                       NSRange(location: 4, length: 5))
+        XCTAssertEqual(AutocompleteController.lastCompletedWordUTF16Range(in: "hello"),
+                       NSRange(location: 0, length: 5))
+        XCTAssertNil(AutocompleteController.lastCompletedWordUTF16Range(in: "   "))
+        XCTAssertNil(AutocompleteController.lastCompletedWordUTF16Range(in: ""))
     }
 
     func test_higherTierReplacesLowerWithinSeq() {

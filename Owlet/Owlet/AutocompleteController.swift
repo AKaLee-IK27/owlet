@@ -12,6 +12,7 @@ protocol AutocompleteAXBridging {
     func isPasswordField(_ element: AXUIElement) -> Bool
     func readCaretContext(from element: AXUIElement) -> CaretContext?
     func insertAtCaret(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult
+    func replaceRange(_ range: NSRange, with text: String, in element: AXUIElement) -> AXBridge.ReplaceResult
 }
 
 extension AXBridgeAdapter: AutocompleteAXBridging {
@@ -20,6 +21,9 @@ extension AXBridgeAdapter: AutocompleteAXBridging {
     func readCaretContext(from element: AXUIElement) -> CaretContext? { AXBridge.readCaretContext(from: element) }
     func insertAtCaret(_ text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
         AXBridge.insertAtCaret(text, in: element)
+    }
+    func replaceRange(_ range: NSRange, with text: String, in element: AXUIElement) -> AXBridge.ReplaceResult {
+        AXBridge.replaceRange(range, with: text, in: element)
     }
 }
 
@@ -52,6 +56,12 @@ final class AutocompleteController {
     private var focusedElement: AXUIElement?
     /// Caret rect captured for `requestID`; where the matching suggestion is drawn.
     private var currentCaretRect: NSRect?
+    /// Field text before the caret for `requestID`, used to locate the word a Tier 1
+    /// recorrection replaces (in the Host's own UTF-16 units, not the engine's offsets).
+    private var currentTextBeforeCaret = ""
+    /// Non-nil when the displayed suggestion is a Tier 1 recorrection: the UTF-16 field
+    /// range to replace on accept (vs a Tier 0 completion, which inserts at the caret).
+    private var recorrectRange: NSRange?
     private var currentSuggestion: String?
     /// The not-yet-accepted suggestion split into word tokens (each carries its own
     /// leading whitespace so re-joining is lossless). Tab consumes one.
@@ -139,14 +149,24 @@ final class AutocompleteController {
         let prefix = String(context.textBeforeCaret.suffix(Self.maxPrefixCharacters))
         focusedElement = focus.focusedElement
         currentCaretRect = rect
+        currentTextBeforeCaret = context.textBeforeCaret
         transport.updateContext(ContextRequest(
             seq: seq,
             prefix: prefix,
             suffix: "",
             appID: focus.appBundleID,
-            trigger: .keystroke,
+            // A trailing boundary char means the user just finished a word → ask the
+            // recorrect tier; mid-word asks completion. (The engine re-checks the word.)
+            trigger: Self.endsAtWordBoundary(prefix) ? .wordBoundary : .keystroke,
             model: modelProvider(),
             maxTokens: maxTokensProvider()))
+    }
+
+    /// True when `text`'s last character is a word boundary (not alphanumeric and not
+    /// an apostrophe), i.e. the user just completed a word.
+    static func endsAtWordBoundary(_ text: String) -> Bool {
+        guard let last = text.unicodeScalars.last else { return false }
+        return !CharacterSet.alphanumerics.contains(last) && last != "'" && last != "\u{2019}"
     }
 
     /// Advance the generation (the wire `seq`) and reset per-generation display state,
@@ -169,11 +189,44 @@ final class AutocompleteController {
         guard rank >= shownTierRank else { return }
         let text = suggestion.text
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        if suggestion.tier == .recorrect {
+            // A correction replaces the word the user just finished (not the caret).
+            // Locate that word in our own field text; drop it if we can't.
+            guard let range = Self.lastCompletedWordUTF16Range(in: currentTextBeforeCaret) else { return }
+            recorrectRange = range
+            remainingWords = [text] // applied whole, in one accept
+        } else {
+            recorrectRange = nil
+            remainingWords = Self.splitIntoWordTokens(text)
+        }
         shownTierRank = rank
         currentSuggestion = text
-        remainingWords = Self.splitIntoWordTokens(text)
         suggestionVisible = true
         overlay.show(text, at: rect)
+    }
+
+    /// UTF-16 range of the last completed word in `text` (same word rule as the engine:
+    /// alphanumerics + interior apostrophes, incl. the macOS smart quote). `text` is the
+    /// field value up to the caret, so this range is the field range too — keeping the
+    /// math in the Host's own units rather than trusting the engine's scalar offsets.
+    static func lastCompletedWordUTF16Range(in text: String) -> NSRange? {
+        let scalars = Array(text.unicodeScalars)
+        func isAlnum(_ s: Unicode.Scalar) -> Bool { CharacterSet.alphanumerics.contains(s) }
+        func isApostrophe(_ s: Unicode.Scalar) -> Bool { s == "'" || s == "\u{2019}" }
+        var end = scalars.count
+        while end > 0 && !isAlnum(scalars[end - 1]) { end -= 1 }
+        guard end > 0 else { return nil }
+        var start = end
+        while start > 0 {
+            let s = scalars[start - 1]
+            let interior = isApostrophe(s) && start >= 2 && isAlnum(scalars[start - 2])
+            if isAlnum(s) || interior { start -= 1 } else { break }
+        }
+        let utf16Len = { (slice: ArraySlice<Unicode.Scalar>) in
+            slice.reduce(0) { $0 + Int(UTF16.width($1)) }
+        }
+        return NSRange(location: utf16Len(scalars[0..<start]), length: utf16Len(scalars[start..<end]))
     }
 
     /// Tier ambition order (spec §3): a later/higher tier supersedes the displayed one.
@@ -190,8 +243,16 @@ final class AutocompleteController {
     /// can't (the synthetic Cmd+V re-enters our event tap), so we insert the rest
     /// whole and finish — an explicit, documented degrade.
     func accept() {
-        guard suggestionVisible, let focusedElement, !remainingWords.isEmpty else { return }
+        guard suggestionVisible, let focusedElement else { return }
 
+        // Tier 1 recorrection replaces the misspelled word span in one accept.
+        if let range = recorrectRange, let correction = currentSuggestion {
+            _ = ax.replaceRange(range, with: correction, in: focusedElement)
+            stop()
+            return
+        }
+
+        guard !remainingWords.isEmpty else { return }
         let next = remainingWords.removeFirst()
         switch ax.insertAtCaret(next, in: focusedElement) {
         case .okAX:
@@ -269,6 +330,8 @@ final class AutocompleteController {
         transport.cancel(seq: seq)
         focusedElement = nil
         currentCaretRect = nil
+        currentTextBeforeCaret = ""
+        recorrectRange = nil
         currentSuggestion = nil
         remainingWords = []
         hideSuggestion()
