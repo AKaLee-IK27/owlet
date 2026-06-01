@@ -31,18 +31,16 @@ final class AutocompleteControllerTests: XCTestCase {
         private let lock = NSLock()
         var response = " world"
         var delayNanos: UInt64 = 0
-        private(set) var calls: [(prefix: String, mode: SuggestionMode, model: String, maxTokens: Int)] = []
+        private(set) var calls: [(prefix: String, model: String, maxTokens: Int)] = []
 
-        func suggest(prefix: String, mode: SuggestionMode, model: String, maxTokens: Int) async throws -> String {
+        func suggest(prefix: String, model: String, maxTokens: Int) async throws -> String {
             let snapshot = lock.withLock { () -> (UInt64, String) in
-                calls.append((prefix, mode, model, maxTokens))
+                calls.append((prefix, model, maxTokens))
                 return (delayNanos, response)
             }
             if snapshot.0 > 0 { try await Task.sleep(nanoseconds: snapshot.0) }
             return snapshot.1
         }
-
-        var lastMode: SuggestionMode? { lock.withLock { calls.last?.mode } }
 
         var lastMaxTokens: Int? { lock.withLock { calls.last?.maxTokens } }
 
@@ -74,7 +72,7 @@ final class AutocompleteControllerTests: XCTestCase {
     func test_debounceCoalescesBursts() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "hello ", caretScreenRect: NSRect(x: 10, y: 10, width: 1, height: 18))
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: NSRect(x: 10, y: 10, width: 1, height: 18))
         let predictor = MockPredictor()
         let overlay = MockOverlay()
         let controller = AutocompleteController(
@@ -127,7 +125,7 @@ final class AutocompleteControllerTests: XCTestCase {
     func test_acceptInsertsCurrentSuggestionAndHides() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "hello ", caretScreenRect: NSRect(x: 10, y: 10, width: 1, height: 18))
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: NSRect(x: 10, y: 10, width: 1, height: 18))
         let predictor = MockPredictor()
         predictor.response = " there"
         let overlay = MockOverlay()
@@ -264,62 +262,10 @@ final class AutocompleteControllerTests: XCTestCase {
         XCTAssertEqual(AutocompleteController.splitIntoWordTokens("hello world"), ["hello", " world"])
     }
 
-    func test_detectMode_trailingLetterOrDigitIsWordCompletion() {
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "I am writ"), .wordCompletion)
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "abc123"), .wordCompletion)
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "x"), .wordCompletion)
-    }
-
-    func test_detectMode_trailingWhitespacePunctuationOrEmptyIsContinuation() {
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "I am "), .continuation)
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "Hello."), .continuation)
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "done,"), .continuation)
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: "line\n"), .continuation)
-        XCTAssertEqual(AutocompleteController.detectMode(textBeforeCaret: ""), .continuation)
-    }
-
-    func test_cleanSuggestion_wordCompletionStripsLeadingWhitespace() {
-        XCTAssertEqual(AutocompleteController.cleanSuggestion(" ing", prefix: "I am writ", mode: .wordCompletion), "ing")
-        XCTAssertEqual(AutocompleteController.cleanSuggestion("ing", prefix: "I am writ", mode: .wordCompletion), "ing")
-        // A bare-space response collapses to nil rather than an empty ghost.
-        XCTAssertNil(AutocompleteController.cleanSuggestion("   ", prefix: "x", mode: .wordCompletion))
-    }
-
-    func test_cleanSuggestion_continuationPreservesLeadingSpace() {
-        XCTAssertEqual(AutocompleteController.cleanSuggestion(" world", prefix: "hello", mode: .continuation), " world")
-    }
-
-    func test_continuationModePassedAfterTrailingSpace() async throws {
-        let ax = MockAX()
-        ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "I am ", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
-        let predictor = MockPredictor()
-        let controller = AutocompleteController(ax: ax, predictor: predictor, enabledProvider: { true })
-
-        controller.textChanged()
-        try await Task.sleep(nanoseconds: 250_000_000)
-
-        XCTAssertEqual(predictor.lastMode, .continuation)
-    }
-
-    func test_wordCompletionModePassedMidWord() async throws {
-        let ax = MockAX()
-        ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "I am writ", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
-        let predictor = MockPredictor()
-        predictor.response = "ing"
-        let controller = AutocompleteController(ax: ax, predictor: predictor, enabledProvider: { true })
-
-        controller.textChanged()
-        try await Task.sleep(nanoseconds: 250_000_000)
-
-        XCTAssertEqual(predictor.lastMode, .wordCompletion)
-    }
-
     func test_wordByWordAcceptInsertsOneWordPerTabThenStops() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "say ", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        ax.context = CaretContext(textBeforeCaret: "say", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
         let predictor = MockPredictor()
         predictor.response = " one two three"
         let controller = AutocompleteController(ax: ax, predictor: predictor, enabledProvider: { true })
@@ -343,7 +289,7 @@ final class AutocompleteControllerTests: XCTestCase {
     func test_pasteFallbackAcceptsWholeSuggestionAtOnce() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "say ", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        ax.context = CaretContext(textBeforeCaret: "say", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
         ax.insertResult = .okPaste
         let predictor = MockPredictor()
         predictor.response = " a b c"
@@ -361,7 +307,7 @@ final class AutocompleteControllerTests: XCTestCase {
     func test_supersededPredictionDoesNotShowStaleResult() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()
-        ax.context = CaretContext(textBeforeCaret: "first ", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        ax.context = CaretContext(textBeforeCaret: "first", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
         let predictor = MockPredictor()
         predictor.delayNanos = 180_000_000
         predictor.response = " stale"
@@ -370,7 +316,7 @@ final class AutocompleteControllerTests: XCTestCase {
 
         controller.textChanged()
         try await Task.sleep(nanoseconds: 150_000_000) // first request has started
-        ax.context = CaretContext(textBeforeCaret: "second ", caretScreenRect: NSRect(x: 5, y: 5, width: 1, height: 18))
+        ax.context = CaretContext(textBeforeCaret: "second", caretScreenRect: NSRect(x: 5, y: 5, width: 1, height: 18))
         predictor.response = " fresh"
         predictor.delayNanos = 0
         controller.textChanged()

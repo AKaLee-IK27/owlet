@@ -1,15 +1,7 @@
 import Foundation
 
-/// Whether the caret sits between words (suggest a continuation) or inside a
-/// half-typed word (complete just that word). Decided from the character before
-/// the caret — see `AutocompleteController.detectMode`.
-enum SuggestionMode: Equatable {
-    case continuation
-    case wordCompletion
-}
-
 protocol Predicting: Sendable {
-    func suggest(prefix: String, mode: SuggestionMode, model: String, maxTokens: Int) async throws -> String
+    func suggest(prefix: String, model: String, maxTokens: Int) async throws -> String
 }
 
 /// Tiny raw-completion client for autocomplete. Uses Ollama's `/api/generate`
@@ -30,20 +22,16 @@ struct OllamaPredictor: Predicting {
         self.session = session
     }
 
-    func suggest(prefix: String, mode: SuggestionMode, model: String, maxTokens: Int) async throws -> String {
+    func suggest(prefix: String, model: String, maxTokens: Int) async throws -> String {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Same instructed prompt for both modes (qwen2.5:1.5b is instruct-tuned, so
-        // a raw prefix yields chat noise). Word completion just adds a space to the
-        // stop set so generation halts after finishing the current word.
-        let stop = mode == .wordCompletion ? [" ", "\n"] : ["\n"]
         request.httpBody = try JSONEncoder().encode(RequestBody(
             model: model,
             prompt: Self.prompt(for: prefix),
             stream: false,
             keepAlive: "24h",
-            options: Options(numPredict: maxTokens, temperature: 0.2, stop: stop)
+            options: Options(numPredict: maxTokens, temperature: 0.2, stop: ["\n"])
         ))
 
         let (data, response) = try await session.data(for: request)

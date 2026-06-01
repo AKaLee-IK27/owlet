@@ -4,38 +4,6 @@
 
 **Last Updated:** 2026-06-01
 **Active Feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
-**Latest:** word-aware suggestion modes shipped on top of autocomplete (Swift 151/151).
-
-## 2026-06-01 (eve) — word-aware suggestion modes (continuation vs word-completion)
-
-User request: when the char before the caret is whitespace, suggest the next
-words/sentence (continuation); when mid-word, complete just that word.
-
-**Evidence-driven design (probed qwen2.5:1.5b live before coding):**
-- Raw prefix (no instruction) → chat noise (`"I am writ"` → `Hello!`): the model is
-  instruct-tuned, NOT FIM/base. So the instructed continuation prompt stays for both modes.
-- That same prompt already completes mid-words (`I am writ` → `ing an essay…`); adding
-  `" "` to the Ollama `stop` set caps it at the current word (`writ`→`ing`, `beauti`→`ful!`).
-- Hard limit (measured, not solvable here): a completed word with no trailing space
-  (`…your help`) is indistinguishable from a mid-word, and the model gives no leading-space
-  tell (`help`→`You're…`, no space). Accepted by capping word mode to ONE word — a strict
-  improvement over today's wrong-*sentence* ghost. Real fix = base/FIM model (feat-020).
-
-**Change (3 files, no schema/UI change):**
-- `Predictor.swift` — `enum SuggestionMode {continuation, wordCompletion}`; `Predicting.suggest`
-  gains `mode`; word mode sends `stop:[" ","\n"]`, continuation keeps `stop:["\n"]`.
-- `AutocompleteController.swift` — `static detectMode(textBeforeCaret:)` (trailing letter/digit
-  → wordCompletion; whitespace/punctuation/empty → continuation); `cleanSuggestion` gains `mode`
-  and strips leading whitespace in word mode. Tokenizer/`accept()` unchanged (`"ing"` → one Tab).
-- `AutocompleteControllerTests.swift` — `MockPredictor` records `mode`; +6 tests (detectMode,
-  word-mode clean, mode-passed-by-position). Five mechanics fixtures given trailing-space
-  prefixes to stay in continuation mode.
-
-**Verified:** `xcodebuild test -scheme Owlet -destination platform=macOS` → 151/151 pass.
-Model-layer behavior verified by direct Ollama probes (exact request shape).
-**Manual smoke PENDING (user-only GUI):** TextEdit — type `I am writ`, pause → ghost `ing`,
-Tab → `writing`; type `I am ` (trailing space), pause → multi-word continuation.
-**Known limit:** space-less scripts (CJK) always read as wordCompletion (documented).
 
 ## feat-015 2026-06-01 (pm) — autocomplete coverage + controls (code complete)
 
