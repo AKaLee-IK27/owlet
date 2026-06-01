@@ -214,6 +214,7 @@ final class AutocompleteController {
         }
 
         let prefix = String(context.textBeforeCaret.suffix(Self.maxPrefixCharacters))
+        let mode = Self.detectMode(textBeforeCaret: context.textBeforeCaret)
         let model = modelProvider()
         let maxTokens = maxTokensProvider()
         let id = requestID + 1
@@ -223,8 +224,8 @@ final class AutocompleteController {
         predictionTask?.cancel()
         predictionTask = Task { [weak self, predictor] in
             do {
-                let raw = try await predictor.suggest(prefix: prefix, model: model, maxTokens: maxTokens)
-                let suggestion = Self.cleanSuggestion(raw, prefix: prefix)
+                let raw = try await predictor.suggest(prefix: prefix, mode: mode, model: model, maxTokens: maxTokens)
+                let suggestion = Self.cleanSuggestion(raw, prefix: prefix, mode: mode)
                 await MainActor.run {
                     guard let self, self.requestID == id, let suggestion, !suggestion.isEmpty else { return }
                     self.currentSuggestion = suggestion
@@ -244,10 +245,22 @@ final class AutocompleteController {
         }
     }
 
-    static func cleanSuggestion(_ raw: String, prefix: String) -> String? {
-        // Preserve leading spaces: they are semantically important for inline
-        // insertion ("hello" + " world"), even though they are easy to miss in
-        // the ghost-text overlay. Only strip line breaks around Ollama output.
+    /// Decide the suggestion mode from the character before the caret. A trailing
+    /// letter or digit means the user is mid-word (complete that word); whitespace,
+    /// punctuation, or an empty prefix means they are between words (continue).
+    /// Note: space-less scripts (e.g. CJK) always read as `.wordCompletion`.
+    static func detectMode(textBeforeCaret: String) -> SuggestionMode {
+        guard let last = textBeforeCaret.last, last.isLetter || last.isNumber else {
+            return .continuation
+        }
+        return .wordCompletion
+    }
+
+    static func cleanSuggestion(_ raw: String, prefix: String, mode: SuggestionMode) -> String? {
+        // Preserve leading spaces in continuation mode: they are semantically
+        // important for inline insertion ("hello" + " world"), even though they
+        // are easy to miss in the ghost-text overlay. Only strip line breaks
+        // around Ollama output here.
         var suggestion = raw.trimmingCharacters(in: .newlines)
         guard !suggestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
@@ -258,6 +271,11 @@ final class AutocompleteController {
         if suggestion.hasPrefix("\"") && suggestion.hasSuffix("\"") && suggestion.count >= 2 {
             suggestion.removeFirst()
             suggestion.removeLast()
+        }
+        // A word completion is the tail of the current word — it can never start
+        // with whitespace ("writ" + "ing", not "writ" + " ing").
+        if mode == .wordCompletion {
+            suggestion = String(suggestion.drop(while: { $0 == " " || $0 == "\t" }))
         }
         return suggestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : suggestion
     }
