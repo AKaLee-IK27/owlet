@@ -78,6 +78,18 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(p2.suggestionLength, .long)
     }
 
+    func test_autocompleteDeniedApps_defaultsEmpty() {
+        let p = Preferences(defaults: defaults)
+        XCTAssertTrue(p.autocompleteDeniedApps.isEmpty)
+    }
+
+    func test_autocompleteDeniedApps_roundtrip() {
+        let p = Preferences(defaults: defaults)
+        p.autocompleteDeniedApps = ["com.apple.Terminal", "com.foo.bar"]
+        let p2 = Preferences(defaults: defaults)
+        XCTAssertEqual(p2.autocompleteDeniedApps, ["com.apple.Terminal", "com.foo.bar"])
+    }
+
     func test_suggestionLength_tokenMappingIsOrdered() {
         // Caps must be distinct and strictly increasing so the picker is meaningful.
         XCTAssertEqual(Preferences.SuggestionLength.short.maxTokens, 10)

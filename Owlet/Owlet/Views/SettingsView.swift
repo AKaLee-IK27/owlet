@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The General tab of Owlet's Settings window: hotkey recorder,
 /// rewriter/vision/autocomplete model pickers, and app toggles.
@@ -12,6 +13,8 @@ struct SettingsView: View {
     @State private var autocompleteEnabled: Bool = Preferences.shared.autocompleteEnabled
     @State private var autocompleteModel: String = Preferences.shared.autocompleteModel
     @State private var suggestionLength: Preferences.SuggestionLength = Preferences.shared.suggestionLength
+    @State private var deniedApps: Set<String> = Preferences.shared.autocompleteDeniedApps
+    @State private var runningApps: [(name: String, bundleID: String)] = []
     @State private var launchAtLogin: Bool = Preferences.shared.launchAtLogin
 
     @State private var models: [String] = []
@@ -97,6 +100,20 @@ struct SettingsView: View {
                     }
                 }
 
+                LabeledContent("Excluded apps") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(excludedAppRows, id: \.bundleID) { app in
+                            Toggle(isOn: denyBinding(for: app.bundleID)) {
+                                Text(app.name).lineLimit(1)
+                            }
+                        }
+                        Text("Owlet won't suggest in checked apps. Running apps appear here; toggles persist even after an app quits.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .disabled(!autocompleteEnabled)
+                }
+
                 LabeledContent("Launch at login") {
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("", isOn: $launchAtLogin)
@@ -127,7 +144,47 @@ struct SettingsView: View {
         .padding()
         .task {
             await loadModels()
+            loadRunningApps()
         }
+    }
+
+    /// Rows shown under "Excluded apps": currently-running user apps, plus any
+    /// already-excluded bundle IDs that aren't running (so they stay removable).
+    private var excludedAppRows: [(name: String, bundleID: String)] {
+        var rows = runningApps
+        let running = Set(runningApps.map(\.bundleID))
+        for id in deniedApps.subtracting(running).sorted() {
+            rows.append((name: id, bundleID: id))
+        }
+        return rows
+    }
+
+    private func denyBinding(for bundleID: String) -> Binding<Bool> {
+        Binding(
+            get: { deniedApps.contains(bundleID) },
+            set: { isDenied in
+                if isDenied { deniedApps.insert(bundleID) } else { deniedApps.remove(bundleID) }
+                Preferences.shared.autocompleteDeniedApps = deniedApps
+            }
+        )
+    }
+
+    /// User-facing running apps (regular activation policy), Owlet excluded,
+    /// sorted by name. Snapshot at open — no live updates needed for this list.
+    private func loadRunningApps() {
+        let apps = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .compactMap { app -> (name: String, bundleID: String)? in
+                guard let id = app.bundleIdentifier,
+                      id != Bundle.main.bundleIdentifier,
+                      let name = app.localizedName else { return nil }
+                return (name: name, bundleID: id)
+            }
+        // De-dupe by bundle ID, then sort by display name.
+        var seen = Set<String>()
+        runningApps = apps
+            .filter { seen.insert($0.bundleID).inserted }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     /// Always include the currently saved model so the Picker has a valid

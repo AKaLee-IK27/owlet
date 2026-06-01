@@ -10,7 +10,7 @@ import os.log
 /// `UserDefaults` suite via the designated initialiser.
 final class Preferences: @unchecked Sendable {
 
-    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel, suggestionLength }
+    enum Change: String { case hotkey, model, launchAtLogin, visionModel, autocompleteEnabled, autocompleteModel, suggestionLength, autocompleteDeniedApps }
 
     /// How long an inline autocomplete suggestion should run. Mapped to the
     /// predict call's `num_predict` token cap (a cap, not an exact word count —
@@ -50,6 +50,7 @@ final class Preferences: @unchecked Sendable {
         static let autocompleteEnabled = "autocompleteEnabled"
         static let autocompleteModel   = "autocompleteModel"
         static let suggestionLength    = "suggestionLength"
+        static let autocompleteDeniedApps = "autocompleteDeniedApps"
     }
 
     init(defaults: UserDefaults) {
@@ -132,6 +133,16 @@ final class Preferences: @unchecked Sendable {
         set {
             defaults.set(newValue.rawValue, forKey: Key.suggestionLength)
             post(.suggestionLength)
+        }
+    }
+
+    /// Bundle IDs where inline autocomplete is silenced. Default-allow: an empty
+    /// set means suggestions everywhere; apps are opted *out* one at a time.
+    var autocompleteDeniedApps: Set<String> {
+        get { Set(defaults.stringArray(forKey: Key.autocompleteDeniedApps) ?? []) }
+        set {
+            defaults.set(Array(newValue).sorted(), forKey: Key.autocompleteDeniedApps)
+            post(.autocompleteDeniedApps)
         }
     }
 

@@ -36,6 +36,7 @@ final class AutocompleteController {
     private let enabledProvider: @MainActor () -> Bool
     private let maxTokensProvider: @MainActor () -> Int
     private let pausedProvider: @MainActor () -> Bool
+    private let deniedAppsProvider: @MainActor () -> Set<String>
     private let onVisibilityChanged: @MainActor (Bool) -> Void
 
     private var debounceTask: Task<Void, Never>?
@@ -57,6 +58,7 @@ final class AutocompleteController {
          enabledProvider: @escaping @MainActor () -> Bool = { Preferences.shared.autocompleteEnabled },
          maxTokensProvider: @escaping @MainActor () -> Int = { Preferences.shared.suggestionLength.maxTokens },
          pausedProvider: @escaping @MainActor () -> Bool = { false },
+         deniedAppsProvider: @escaping @MainActor () -> Set<String> = { Preferences.shared.autocompleteDeniedApps },
          onVisibilityChanged: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.ax = ax
         self.predictor = predictor
@@ -65,6 +67,7 @@ final class AutocompleteController {
         self.enabledProvider = enabledProvider
         self.maxTokensProvider = maxTokensProvider
         self.pausedProvider = pausedProvider
+        self.deniedAppsProvider = deniedAppsProvider
         self.onVisibilityChanged = onVisibilityChanged
     }
 
@@ -107,6 +110,7 @@ final class AutocompleteController {
     private func beginPrediction() {
         guard enabledProvider(), !pausedProvider() else { stop(); return }
         guard let focus = ax.currentFocus() else { hideSuggestion(); return }
+        guard !deniedAppsProvider().contains(focus.appBundleID) else { hideSuggestion(); return }
         guard !ax.isPasswordField(focus.focusedElement) else { hideSuggestion(); return }
         guard let context = ax.readCaretContext(from: focus.focusedElement),
               let rect = context.caretScreenRect,

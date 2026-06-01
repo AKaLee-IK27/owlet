@@ -184,6 +184,43 @@ final class AutocompleteControllerTests: XCTestCase {
         XCTAssertFalse(controller.suggestionVisible)
     }
 
+    func test_deniedAppDoesNotPredict() async throws {
+        let ax = MockAX()
+        ax.focus = makeFocus() // appBundleID == "test"
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        let predictor = MockPredictor()
+        let controller = AutocompleteController(
+            ax: ax,
+            predictor: predictor,
+            enabledProvider: { true },
+            deniedAppsProvider: { ["test"] }
+        )
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 180_000_000)
+
+        XCTAssertEqual(predictor.callCount, 0)
+        XCTAssertFalse(controller.suggestionVisible)
+    }
+
+    func test_allowedAppPredicts() async throws {
+        let ax = MockAX()
+        ax.focus = makeFocus() // appBundleID == "test"
+        ax.context = CaretContext(textBeforeCaret: "hello", caretScreenRect: NSRect(x: 0, y: 0, width: 1, height: 18))
+        let predictor = MockPredictor()
+        let controller = AutocompleteController(
+            ax: ax,
+            predictor: predictor,
+            enabledProvider: { true },
+            deniedAppsProvider: { ["some.other.app"] }
+        )
+
+        controller.textChanged()
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertEqual(predictor.callCount, 1)
+    }
+
     func test_supersededPredictionDoesNotShowStaleResult() async throws {
         let ax = MockAX()
         ax.focus = makeFocus()

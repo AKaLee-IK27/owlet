@@ -123,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Nothing to do here — beginPrediction reads the token cap lazily on
             // the next prediction; the next keystroke picks up the new length.
             break
+        case .autocompleteDeniedApps:
+            // Nothing to do here — beginPrediction reads the denylist lazily via
+            // its deniedAppsProvider on the next prediction.
+            break
         }
     }
 
