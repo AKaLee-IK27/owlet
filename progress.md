@@ -253,7 +253,19 @@ unsupportedElement cache degrades cleanly). Multi-monitor not in this capture (a
 selectable, Tier 0/1 reachable. **Remaining:** (a) Tier 2 LLM build (`--features tier2` + GGUF, their
 Mac) for rich suggestions — Tier 0 is limited to the ~130-word starter dict; (b) degenerate-rect "no
 ghost" fields (deferred, hard); (c) multi-monitor re-verify if it ever looks off on an external
-display. Committing diagnostic removal on `feat/per-keystroke-engine`.
+display. Committed diagnostic removal (ce2d95b).
+
+## 2026-06-02 — Tier 0 dictionary expanded 130 → 9894 words
+
+To address "limited suggestions" without the Tier 2 build: replaced the ~130-word starter
+`words_en.txt` with the google-10000-english "no swears" list (github.com/first20hours/
+google-10000-english, MIT — most-frequent English words, profanity-filtered, frequency-ordered;
+attribution in the file header). Lowercase-alphabetic, frequency order preserved so completions rank
+by commonness. **Verified:** `cargo test` 32/32, `clippy -D warnings` clean, release binary builds;
+real-socket smoke now completes comp→company, develo→development, inter→international, comput→computer,
+schedul→schedule, under→understand, config→configuration (all blank before). The fst builds over 9894
+words at startup in ~ms. Tier 0 is now broadly useful for word-completion; rich sentence continuation
+still = Tier 2 (the LLM build). Committing on `feat/per-keystroke-engine`. Re-run `make install` to ship it.
 
 ---
 **Prior active feature:** feat-015 — code complete (all 5 slices), Swift 145/145; manual GUI smoke pending.
